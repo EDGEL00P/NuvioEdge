@@ -31,7 +31,7 @@ The Live TV tests and a debug build:
 ./gradlew :app:assembleFullDebug
 ```
 
-The `full` build installs as `com.edgeloop.nuvioedge`, so it can sit next to the official Nuvio app. The in-app updater checks this repository's releases.
+Release builds of the `full` flavour install as `com.edgeloop.nuvioedge`, so they can sit next to the official Nuvio app (debug builds keep upstream's `com.nuviodebug.com`). The in-app updater checks this repository's releases. Upstream's build signs debug builds with the release key, so set `NUVIO_RELEASE_STORE_FILE`, `NUVIO_RELEASE_KEY_ALIAS`, `NUVIO_RELEASE_KEY_PASSWORD` and `NUVIO_RELEASE_STORE_PASSWORD` before building.
 
 See the [upstream NuvioTV README](https://github.com/NuvioMedia/NuvioTV#readme) for general build setup, such as `local.properties`.
 
