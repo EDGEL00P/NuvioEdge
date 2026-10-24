@@ -1237,6 +1237,15 @@ private fun PlaybackNavHost(
             com.nuvio.tv.ui.screens.live.LiveTvScreen(
                 onPlayChannel = { channel, nowTitle ->
                     navController.navigate(com.nuvio.tv.ui.screens.live.liveChannelPlayerRoute(channel, nowTitle))
+                },
+                onOpenMultiview = { navController.navigate(Screen.LiveMultiview.route) }
+            )
+        }
+
+        composable(Screen.LiveMultiview.route) {
+            com.nuvio.tv.ui.screens.live.MultiviewScreen(
+                onOpenFullScreen = { channel ->
+                    navController.navigate(com.nuvio.tv.ui.screens.live.liveChannelPlayerRoute(channel, null))
                 }
             )
         }

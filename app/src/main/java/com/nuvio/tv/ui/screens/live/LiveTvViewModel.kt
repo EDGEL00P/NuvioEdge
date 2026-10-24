@@ -72,9 +72,12 @@ class LiveTvViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            var ticks = 0
             while (isActive) {
                 delay(30_000)
                 _uiState.update { it.copy(nowMs = System.currentTimeMillis()) }
+                // Every 30 minutes re-check sources; stale playlists and guides are re-validated with the server.
+                if (++ticks % 60 == 0 && !_uiState.value.loading) load(force = false)
             }
         }
     }
@@ -144,7 +147,7 @@ class LiveTvViewModel @Inject constructor(
     /** Remembers the list the user is zapping through so CH+/CH- in the player can move along it. */
     fun startZapSession(channel: IptvChannel) {
         val state = _uiState.value
-        LiveZapSession.start(state.channels, channel, state.guide)
+        LiveZapSession.start(state.channels, channel, state.guide, state.allChannels)
     }
 
     private fun LiveTvUiState.withGroups(): LiveTvUiState {
@@ -166,22 +169,46 @@ class LiveTvViewModel @Inject constructor(
     }
 }
 
-/** In-memory only (never persisted): the channel list behind the current live playback. */
+/** In-memory only (never persisted): the channels behind the current live playback. */
 object LiveZapSession {
+    /** The list CH+/CH- moves through (the group you played from). */
     @Volatile private var channels: List<IptvChannel> = emptyList()
+    /** Every channel, for number entry and backup copies. */
+    @Volatile private var all: List<IptvChannel> = emptyList()
     @Volatile private var guide: Map<String, List<EpgProgramme>> = emptyMap()
     @Volatile private var index: Int = -1
+    @Volatile private var current: IptvChannel? = null
+    @Volatile private var previous: IptvChannel? = null
+    /** Copies already tried for the channel that failed. */
+    private val tried = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-    fun start(list: List<IptvChannel>, current: IptvChannel, guideMap: Map<String, List<EpgProgramme>>) {
+    private val _typedNumber = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val typedNumber: StateFlow<String?> = _typedNumber.asStateFlow()
+    private val handler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    private val digitToken = Any()
+
+    /** Set by the live player destination while it is on screen; opens a channel in its place. */
+    @Volatile var navigator: ((IptvChannel) -> Unit)? = null
+
+    fun start(
+        list: List<IptvChannel>,
+        channel: IptvChannel,
+        guideMap: Map<String, List<EpgProgramme>>,
+        allChannels: List<IptvChannel> = list
+    ) {
+        if (current != null && current?.id != channel.id) previous = current
         channels = list
+        all = allChannels
         guide = guideMap
-        index = list.indexOfFirst { it.id == current.id }
+        index = list.indexOfFirst { it.id == channel.id }
+        current = channel
+        tried.clear()
     }
 
-    /** The channel playing now (or last played), so the list can return focus to it. */
-    fun currentId(): String? = channels.getOrNull(index)?.id
+    /** The channel playing now (or last played), so lists can return focus to it. */
+    fun currentId(): String? = current?.id
 
-    /** Next/previous channel (wrapping), or null when no live session is active. */
+    /** Next/previous channel in the list (wrapping), or null when there is none. */
     fun step(forward: Boolean): IptvChannel? {
         val list = channels
         if (list.size < 2 || index !in list.indices) return null
@@ -189,18 +216,68 @@ object LiveZapSession {
         return list[index]
     }
 
+    /** CH+/CH- from the player. Returns true when the key was handled. */
+    fun zap(forward: Boolean): Boolean {
+        if (navigator == null) return false
+        val channel = step(forward) ?: return false
+        return open(channel)
+    }
+
+    fun jumpToNumber(number: Int): Boolean {
+        val channel = all.firstOrNull { it.number == number } ?: return false
+        return open(channel)
+    }
+
+    /** Flip back to the channel watched before this one. */
+    fun lastChannel(): Boolean = previous?.let(::open) ?: false
+
+    /** Called when playback fails: switches to an untried copy of the same channel, if there is one. */
+    fun failover(): Boolean {
+        val go = navigator ?: return false
+        val failed = current ?: return false
+        tried += failed.id
+        val backup = backupCopies(failed, all).firstOrNull { it.id !in tried } ?: return false
+        tried += backup.id
+        current = backup
+        go(backup)
+        return true
+    }
+
+    /** A digit pressed during live playback; the channel opens 1.5 s after the last digit. */
+    fun onDigit(digit: Int): Boolean {
+        if (navigator == null) return false
+        _typedNumber.value = ((_typedNumber.value ?: "") + digit).takeLast(4)
+        handler.removeCallbacksAndMessages(digitToken)
+        handler.postAtTime({
+            val number = _typedNumber.value?.toIntOrNull()
+            _typedNumber.value = null
+            if (number != null) jumpToNumber(number)
+        }, digitToken, android.os.SystemClock.uptimeMillis() + 1_500)
+        return true
+    }
+
     fun nowTitle(channel: IptvChannel, nowMs: Long = System.currentTimeMillis()): String? =
         IptvRepository.nowAndNext(guide[channel.id], nowMs).first?.title?.takeIf { it.isNotBlank() }
 
-    /** Set by the live player destination while it is on screen; opens a channel in its place. */
-    @Volatile var navigator: ((IptvChannel) -> Unit)? = null
-
-    /** CH+/CH- from the player. Returns true when the key was handled. */
-    fun zap(forward: Boolean): Boolean {
-        val open = navigator ?: return false
-        val channel = step(forward) ?: return false
-        open(channel)
+    private fun open(channel: IptvChannel): Boolean {
+        val go = navigator ?: return false
+        if (current?.id != channel.id) previous = current
+        current = channel
+        channels.indexOfFirst { it.id == channel.id }.takeIf { it >= 0 }?.let { index = it }
+        tried.clear()
+        go(channel)
         return true
+    }
+
+    fun clear() {
+        channels = emptyList()
+        all = emptyList()
+        guide = emptyMap()
+        index = -1
+        current = null
+        previous = null
+        tried.clear()
+        _typedNumber.value = null
     }
 }
 

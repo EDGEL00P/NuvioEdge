@@ -3440,7 +3440,6 @@
     <string name="live_http_warning">This address uses plain HTTP, so your login and viewing are not encrypted on the network. Use https:// if your provider supports it.</string>
     <string name="live_checking">Checking…</string>
     <string name="live_save">Save</string>
-    <string name="live_hint">Hold Select on a channel to add it to Favourites. CH+ and CH− change channel while watching.</string>
     <string name="live_guide_loading">Loading guide…</string>
     <string name="ticker_on">Ticker: On</string>
     <string name="ticker_off">Ticker: Off</string>
@@ -3449,5 +3448,16 @@
     <string name="ticker_total">O/U</string>
     <string name="ticker_moneyline">H2H</string>
     <string name="ticker_odds_by">Odds: %1$s · via ESPN</string>
+    <string name="multiview_button">Multiview</string>
+    <string name="multiview_empty_tile">Press OK to choose a channel</string>
+    <string name="multiview_pick_title">Choose a channel</string>
+    <string name="multiview_tile_error">This stream couldn\'t start (%1$s). Your TV may have reached its limit of video streams.</string>
+    <string name="live_search">Search</string>
+    <string name="live_search_title">Search channels and guide</string>
+    <string name="live_search_hint">Team, show or channel</string>
+    <string name="live_search_none">Nothing found on your channels.</string>
+    <string name="live_search_now">On now · %1$s</string>
+    <string name="live_search_at">%1$s · %2$s</string>
+    <string name="live_hint_numbers">Hold Select to add a favourite. While watching: CH+/CH− change channel, type a number to jump, Last Channel flips back.</string>
     <string name="live_attribution">Live TV is based on VesperTV by NoXqc (GPL-3.0)</string>
 </resources>

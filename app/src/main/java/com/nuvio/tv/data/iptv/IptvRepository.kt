@@ -57,8 +57,19 @@ class IptvRepository @Inject constructor(
         }
         .build()
 
+    /** For video players: no disk cache, logging or Sentry breadcrumbs (stream URLs can hold logins). */
+    val streamClient: OkHttpClient = okHttpClient.newBuilder()
+        .cache(null)
+        .apply {
+            interceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
+            networkInterceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
+        }
+        .build()
+
     private val cache = IptvFileCache(File(context.cacheDir, "nuvio_live"), vault::cacheKey)
+    private val downloader = ConditionalDownloader(http, cache)
     private val playlists = ConcurrentHashMap<String, Pair<String, IptvPlaylist>>()
+    private val playlistLoadedAt = ConcurrentHashMap<String, Long>()
 
     val sources: Flow<List<IptvSource>> = store.sources
     val favorites: Flow<Set<String>> = store.favorites
@@ -158,7 +169,8 @@ class IptvRepository @Inject constructor(
 
     private fun fetchPlaylist(source: IptvSource, force: Boolean): IptvPlaylist {
         val memo = playlists[source.id]
-        if (!force && memo != null && memo.first == source.contentKey) return memo.second
+        val memoAge = System.currentTimeMillis() - (playlistLoadedAt[source.id] ?: 0L)
+        if (!force && memo != null && memo.first == source.contentKey && memoAge < PLAYLIST_MAX_AGE_MS) return memo.second
         val playlist = when (source.type) {
             IptvSourceType.M3U -> cached(
                 "m3u|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_PLAYLIST_BYTES, force, source.url
@@ -181,6 +193,7 @@ class IptvRepository @Inject constructor(
         }
         if (playlist.channels.isEmpty()) throw IptvException("No channels found")
         playlists[source.id] = source.contentKey to playlist
+        playlistLoadedAt[source.id] = System.currentTimeMillis()
         return playlist
     }
 
@@ -201,21 +214,12 @@ class IptvRepository @Inject constructor(
             runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
         }
         try {
-            downloadInto(key, url, maxBytes)
+            downloader.fetch(key, url, maxBytes)
         } catch (e: IOException) {
             if (age != null) runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
             throw IptvException(friendly(e), e)
         }
         return cache.read(key, parse) ?: throw IptvException("Could not read the downloaded data")
-    }
-
-    private fun downloadInto(key: String, url: String, maxBytes: Long) {
-        http.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val body = response.body ?: throw IOException("Empty response")
-            if (body.contentLength() > maxBytes) throw IptvSafety.TooLargeException()
-            cache.write(key) { out -> IptvSafety.copyLimited(body.byteStream(), out, maxBytes) }
-        }
     }
 
     private fun download(url: String): String =
@@ -257,7 +261,8 @@ class IptvRepository @Inject constructor(
 
         private const val GENERIC_ERROR = "Could not load this source"
         private const val PLAYLIST_MAX_AGE_MS = 6 * 60 * 60 * 1000L
-        private const val GUIDE_MAX_AGE_MS = 12 * 60 * 60 * 1000L
+        // Re-checking is cheap: unchanged files come back as HTTP 304 with no body.
+        private const val GUIDE_MAX_AGE_MS = 6 * 60 * 60 * 1000L
 
         fun nowAndNext(programmes: List<EpgProgramme>?, nowMs: Long): Pair<EpgProgramme?, EpgProgramme?> {
             if (programmes.isNullOrEmpty()) return null to null

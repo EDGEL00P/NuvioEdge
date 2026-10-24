@@ -173,7 +173,31 @@ class IptvFileCache(
         }
     }
 
+    /** Marks an entry fresh again (the server said it hasn't changed). */
+    fun touch(key: String) {
+        fileFor(key).setLastModified(System.currentTimeMillis())
+    }
+
+    internal fun writeValidators(key: String, validators: Validators) {
+        if (validators.etag == null && validators.lastModified == null) {
+            fileFor(META_PREFIX + key).delete()
+            return
+        }
+        val text = listOf(validators.etag.orEmpty(), validators.lastModified.orEmpty()).joinToString("\n")
+        write(META_PREFIX + key) { it.write(text.toByteArray()) }
+    }
+
+    internal fun readValidators(key: String): Validators? =
+        runCatching { read(META_PREFIX + key) { String(it.readBytes()) } }.getOrNull()?.let { text ->
+            val lines = text.split("\n")
+            Validators(lines.getOrNull(0)?.ifEmpty { null }, lines.getOrNull(1)?.ifEmpty { null })
+        }
+
     fun clear() {
         dir.listFiles()?.forEach { it.delete() }
+    }
+
+    private companion object {
+        const val META_PREFIX = "meta|"
     }
 }

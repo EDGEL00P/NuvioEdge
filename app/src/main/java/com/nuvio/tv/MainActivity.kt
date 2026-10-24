@@ -1276,6 +1276,7 @@ open class MainActivity : ComponentActivity() {
                     // Sports ticker over every screen (has its own on/off switch in Live TV).
                     if (startupDestination == StartupDestination.Content) {
                         com.nuvio.tv.ui.components.ticker.SportsTickerOverlay()
+                        com.nuvio.tv.ui.screens.live.LiveNumberEntryOverlay()
                     }
                     if (splashAlpha > 0f) {
                         com.nuvio.tv.ui.components.StartupSplashScreen(

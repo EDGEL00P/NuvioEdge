@@ -20,7 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
@@ -66,12 +68,14 @@ import java.util.Date
 @Composable
 fun LiveTvScreen(
     onPlayChannel: (IptvChannel, String?) -> Unit,
+    onOpenMultiview: () -> Unit,
     viewModel: LiveTvViewModel = hiltViewModel(),
     tickerViewModel: com.nuvio.tv.ui.components.ticker.SportsTickerViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val tickerOn by tickerViewModel.enabled.collectAsStateWithLifecycle()
     var showSources by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
 
     LiveTvContent(
         state = state,
@@ -79,6 +83,8 @@ fun LiveTvScreen(
         onRefresh = viewModel::refresh,
         onToggleTicker = tickerViewModel::toggle,
         onOpenSources = { showSources = true },
+        onOpenMultiview = onOpenMultiview,
+        onOpenSearch = { showSearch = true },
         onSelectGroup = viewModel::selectGroup,
         onPlay = { channel ->
             viewModel.startZapSession(channel)
@@ -91,6 +97,19 @@ fun LiveTvScreen(
     if (showSources) {
         LiveSourcesDialog(viewModel = viewModel, onDismiss = { showSources = false })
     }
+    if (showSearch) {
+        LiveSearchDialog(
+            channels = state.allChannels,
+            guide = state.guide,
+            nowMs = state.nowMs,
+            onPlay = { channel ->
+                showSearch = false
+                viewModel.startZapSession(channel)
+                onPlayChannel(channel, LiveZapSession.nowTitle(channel))
+            },
+            onDismiss = { showSearch = false }
+        )
+    }
 }
 
 /** The Live TV layout, without view models, so it can be previewed and rendered in tests. */
@@ -101,6 +120,8 @@ internal fun LiveTvContent(
     onRefresh: () -> Unit,
     onToggleTicker: () -> Unit,
     onOpenSources: () -> Unit,
+    onOpenMultiview: () -> Unit,
+    onOpenSearch: () -> Unit,
     onSelectGroup: (String) -> Unit,
     onPlay: (IptvChannel) -> Unit,
     onToggleFavorite: (IptvChannel) -> Unit
@@ -137,12 +158,18 @@ internal fun LiveTvContent(
                 onClick = onToggleTicker
             )
             Spacer(Modifier.width(NuvioTheme.spacing.sm))
+            if (state.allChannels.isNotEmpty()) {
+                HeaderButton(Icons.Default.Search, stringResource(R.string.live_search), onClick = onOpenSearch)
+                Spacer(Modifier.width(NuvioTheme.spacing.sm))
+                HeaderButton(Icons.Default.GridView, stringResource(R.string.multiview_button), onClick = onOpenMultiview)
+                Spacer(Modifier.width(NuvioTheme.spacing.sm))
+            }
             HeaderButton(Icons.Default.Settings, stringResource(R.string.live_sources), onClick = onOpenSources)
         }
 
         if (state.allChannels.isNotEmpty()) {
             Text(
-                text = stringResource(R.string.live_hint),
+                text = stringResource(R.string.live_hint_numbers),
                 style = MaterialTheme.typography.bodySmall,
                 color = NuvioTheme.colors.TextSecondary,
                 modifier = Modifier.padding(top = NuvioTheme.spacing.xs)

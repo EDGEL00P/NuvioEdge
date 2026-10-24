@@ -264,6 +264,16 @@ fun PlayerScreen(
             completed
         )
     }
+    // Live TV: when a stream fails, or stays stuck buffering for 15 s, try another copy of the same
+    // channel. With no backup copy nothing changes and the player keeps trying as before.
+    LaunchedEffect(uiState.error, uiState.isBuffering) {
+        if (uiState.contentType != com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) return@LaunchedEffect
+        if (uiState.error == null) {
+            if (!uiState.isBuffering) return@LaunchedEffect
+            kotlinx.coroutines.delay(LIVE_STALL_TIMEOUT_MS)
+        }
+        com.nuvio.tv.ui.screens.live.LiveZapSession.failover()
+    }
     val exitPlayerFromError: () -> Unit = exitPlayerFromError@{
         if (exitDispatched) return@exitPlayerFromError
         exitDispatched = true
@@ -926,6 +936,15 @@ fun PlayerScreen(
                             viewModel.onEvent(PlayerEvent.OnPlayPause)
                             true
                         }
+                        // Live TV: type a channel number, or flip back to the last channel.
+                        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 ->
+                            uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                com.nuvio.tv.ui.screens.live.LiveZapSession.onDigit(
+                                    keyEvent.nativeKeyEvent.keyCode - KeyEvent.KEYCODE_0
+                                )
+                        KeyEvent.KEYCODE_LAST_CHANNEL ->
+                            uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                com.nuvio.tv.ui.screens.live.LiveZapSession.lastChannel()
                         KeyEvent.KEYCODE_MEDIA_NEXT,
                         KeyEvent.KEYCODE_CHANNEL_UP,
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS,
@@ -4385,3 +4404,5 @@ private fun PlayerBufferingIndicator(
         }
     }
 }
+
+private const val LIVE_STALL_TIMEOUT_MS = 15_000L
