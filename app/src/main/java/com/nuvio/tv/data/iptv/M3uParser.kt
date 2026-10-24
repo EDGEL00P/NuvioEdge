@@ -2,7 +2,7 @@
 // Modified for NuvioTV: comma-safe names, header guide URL, per-channel HTTP headers.
 package com.nuvio.tv.data.iptv
 
-import java.io.BufferedReader
+import java.io.Reader
 
 /**
  * Parses M3U / M3U8 playlists one line at a time, so huge Xtream `get.php` playlists are never
@@ -36,13 +36,13 @@ class M3uParser(private val sourceId: String) {
                 attrs = parseAttributes(line)
                 pendingName = extractName(line)
                 pendingHeaders = HashMap()
-                attrs["user-agent"]?.takeIf { it.isNotBlank() }?.let { pendingHeaders["User-Agent"] = it }
+                attrs["user-agent"]?.let(IptvSafety::cleanHeaderValue)?.let { pendingHeaders["User-Agent"] = it }
             }
             line.startsWith("#EXTVLCOPT:", ignoreCase = true) -> {
                 val option = line.substringAfter(':')
                 val key = option.substringBefore('=').trim().lowercase()
-                val value = option.substringAfter('=', "").trim()
-                if (value.isNotEmpty()) {
+                val value = IptvSafety.cleanHeaderValue(option.substringAfter('=', ""))
+                if (value != null) {
                     when (key) {
                         "http-user-agent" -> pendingHeaders["User-Agent"] = value
                         "http-referrer", "http-referer" -> pendingHeaders["Referer"] = value
@@ -56,8 +56,8 @@ class M3uParser(private val sourceId: String) {
         }
     }
 
-    fun parse(reader: BufferedReader): IptvPlaylist {
-        reader.useLines { lines -> lines.forEach(::consumeLine) }
+    fun parse(reader: Reader): IptvPlaylist {
+        reader.use { IptvSafety.forEachLineCapped(it, IptvSafety.MAX_LINE_CHARS, ::consumeLine) }
         return result()
     }
 
@@ -65,7 +65,8 @@ class M3uParser(private val sourceId: String) {
 
     private fun finishEntry(url: String) {
         val name = pendingName
-        if (name != null) {
+        // Only network streams: a playlist must not point the player at files on the device.
+        if (name != null && IptvSafety.isAllowedStream(url)) {
             counter++
             val group = attrs["group-title"]?.takeIf { it.isNotBlank() } ?: UNCATEGORIZED
             // Stable across refreshes and reordering (favourites survive), unique for duplicates.
@@ -78,7 +79,7 @@ class M3uParser(private val sourceId: String) {
                 name = name.ifBlank { attrs["tvg-name"].orEmpty().ifBlank { "Channel $counter" } },
                 group = group,
                 streamUrl = url,
-                logoUrl = attrs["tvg-logo"]?.takeIf { it.isNotBlank() },
+                logoUrl = attrs["tvg-logo"]?.takeIf(IptvSafety::isWebUrl),
                 epgId = attrs["tvg-id"]?.takeIf { it.isNotBlank() },
                 epgName = attrs["tvg-name"]?.takeIf { it.isNotBlank() },
                 number = attrs["tvg-chno"]?.trim()?.toIntOrNull(),

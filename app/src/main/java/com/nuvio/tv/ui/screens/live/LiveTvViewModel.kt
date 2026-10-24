@@ -31,6 +31,7 @@ data class LiveTvUiState(
     val selectedGroup: String = LiveTvViewModel.GROUP_ALL,
     val favorites: Set<String> = emptySet(),
     val guide: Map<String, List<EpgProgramme>> = emptyMap(),
+    val guideLoading: Boolean = false,
     val nowMs: Long = System.currentTimeMillis()
 ) {
     val channels: List<IptvChannel>
@@ -93,8 +94,13 @@ class LiveTvViewModel @Inject constructor(
             _uiState.update {
                 it.copy(allChannels = result.channels, errors = result.errors, loading = false).withGroups()
             }
-            val guide = repository.loadGuide(sources, result.channels, force)
-            _uiState.update { it.copy(guide = guide, nowMs = System.currentTimeMillis()) }
+            _uiState.update { it.copy(guideLoading = true) }
+            try {
+                val guide = repository.loadGuide(sources, result.channels, force)
+                _uiState.update { it.copy(guide = guide, nowMs = System.currentTimeMillis()) }
+            } finally {
+                _uiState.update { it.copy(guideLoading = false) }
+            }
         }
     }
 
@@ -131,7 +137,7 @@ class LiveTvViewModel @Inject constructor(
                     _addState.value = AddSourceState()
                     onDone()
                 }
-                .onFailure { e -> _addState.value = AddSourceState(error = e.message ?: "Could not add source") }
+                .onFailure { e -> _addState.value = AddSourceState(error = IptvRepository.userMessage(e)) }
         }
     }
 
@@ -171,6 +177,9 @@ object LiveZapSession {
         guide = guideMap
         index = list.indexOfFirst { it.id == current.id }
     }
+
+    /** The channel playing now (or last played), so the list can return focus to it. */
+    fun currentId(): String? = channels.getOrNull(index)?.id
 
     /** Next/previous channel (wrapping), or null when no live session is active. */
     fun step(forward: Boolean): IptvChannel? {

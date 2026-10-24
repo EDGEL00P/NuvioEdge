@@ -1273,6 +1273,10 @@ open class MainActivity : ComponentActivity() {
                             focusedSplashTheme = null
                         }
                     }
+                    // Sports ticker over every screen (has its own on/off switch in Live TV).
+                    if (startupDestination == StartupDestination.Content) {
+                        com.nuvio.tv.ui.components.ticker.SportsTickerOverlay()
+                    }
                     if (splashAlpha > 0f) {
                         com.nuvio.tv.ui.components.StartupSplashScreen(
                             profileColorHex = splashBackground.profileColorHex,

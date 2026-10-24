@@ -14,6 +14,12 @@ Live TV has its own sidebar tab and supports:
 - **Playback:** channels play in Nuvio's own player. **CH+ / CH−**, or Next/Previous, changes channel without leaving the player.
 - **HTTP headers:** a playlist's `#EXTVLCOPT` User-Agent, Referrer and Origin lines are passed to the player.
 
+### Sports ticker
+
+A strip along the bottom of every screen flips through today's games: league, teams, score, live clock and, where available, line, over/under and head-to-head odds with the bookmaker named. It covers NFL, NBA, MLB, NHL, college football and basketball, WNBA, MLS, Premier League, Champions League, AFL and NRL. **Ticker: On/Off** in Live TV switches it; it is on by default.
+
+Data comes from ESPN's public scoreboard feed. It needs no key, but it is unofficial and can change without notice; odds appear only where the feed includes them. It refreshes every minute while visible and never takes remote focus.
+
 ### Encryption and privacy
 
 - **Saved sources:** playlist URLs, Xtream usernames and passwords, and guide URLs are stored as AES-256-GCM ciphertext. The key is a non-exportable Android Keystore key, and each profile's data is tied to that profile.

@@ -93,7 +93,7 @@ object XtreamClient {
                 name = name,
                 group = obj.string("category_id")?.let(categories::get) ?: M3uParser.UNCATEGORIZED,
                 streamUrl = liveStreamUrl(source, streamId),
-                logoUrl = obj.string("stream_icon")?.takeIf { it.isNotBlank() },
+                logoUrl = obj.string("stream_icon")?.takeIf(IptvSafety::isWebUrl),
                 epgId = obj.string("epg_channel_id")?.takeIf { it.isNotBlank() },
                 epgName = name,
                 number = obj.string("num")?.toIntOrNull()

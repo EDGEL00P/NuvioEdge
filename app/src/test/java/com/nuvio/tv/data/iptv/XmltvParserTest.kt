@@ -63,6 +63,24 @@ class XmltvParserTest {
     }
 
     @Test
+    fun `caps programme text length`() {
+        val longTitle = "T".repeat(IptvSafety.MAX_TEXT_CHARS * 3)
+        val doc = """<tv><programme start="20261024100000" stop="20261024110000" channel="c"><title>$longTitle</title></programme></tv>"""
+        val result = XmltvParser(now).parse(doc.byteInputStream())
+        assertEquals(IptvSafety.MAX_TEXT_CHARS, result.programmes.getValue("c")[0].title.length)
+    }
+
+    @Test
+    fun `does not resolve external entities`() {
+        val doc = """<?xml version="1.0"?>
+            <!DOCTYPE tv [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>
+            <tv><programme start="20261024100000" stop="20261024110000" channel="c"><title>A&xxe;B</title></programme></tv>"""
+        val title = runCatching { XmltvParser(now).parse(doc.byteInputStream()).programmes["c"]?.get(0)?.title }.getOrNull()
+        // Either the parser refuses the document or the entity expands to nothing.
+        assertTrue(title == null || title == "AB")
+    }
+
+    @Test
     fun `reads gzip guides`() {
         val gz = ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write(xml.toByteArray()) } }
         val result = XmltvParser(now).parse(gz.toByteArray().inputStream())

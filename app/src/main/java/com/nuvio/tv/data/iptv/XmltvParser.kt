@@ -46,6 +46,8 @@ class XmltvParser(
             wantedNames = wantedNames.orEmpty()
         )
         val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = false }
+        // Entity-expansion and size limits where the platform supports them.
+        runCatching { factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true) }
         // Guides come from third-party servers: never resolve external entities (XXE).
         listOf(
             "http://xml.org/sax/features/external-general-entities",
@@ -103,7 +105,10 @@ class XmltvParser(
         }
 
         override fun characters(ch: CharArray, start: Int, length: Int) {
-            if (capturing) text.append(ch, start, length)
+            if (capturing) {
+                val room = IptvSafety.MAX_TEXT_CHARS - text.length
+                if (room > 0) text.append(ch, start, minOf(length, room))
+            }
         }
 
         override fun endElement(uri: String?, localName: String?, qName: String) {

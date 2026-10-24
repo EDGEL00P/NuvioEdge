@@ -59,6 +59,32 @@ class M3uParserTest {
     }
 
     @Test
+    fun `drops local-file streams, bad logos and header injection`() {
+        val result = M3uParser("src").parse(
+            """
+            #EXTM3U
+            #EXTINF:-1 tvg-logo="file:///sdcard/logo.png",Local file
+            file:///data/data/com.nuvio.tv/files/secret
+            #EXTINF:-1,Content uri
+            content://media/external/video/1
+            #EXTINF:-1 tvg-logo="https://logo/ok.png",Good
+            #EXTVLCOPT:http-user-agent=Agent${"\u0007"}X
+            https://ok.example/1.m3u8
+            """.trimIndent().reader()
+        )
+        assertEquals(listOf("Good"), result.channels.map { it.name })
+        assertEquals("https://logo/ok.png", result.channels[0].logoUrl)
+        assertEquals(mapOf("User-Agent" to "AgentX"), result.channels[0].headers)
+    }
+
+    @Test
+    fun `over-long lines are skipped without breaking the next entry`() {
+        val huge = "#EXTINF:-1," + "x".repeat(IptvSafety.MAX_LINE_CHARS + 10)
+        val result = M3uParser("src").parse("$huge\nhttp://a/1.ts\n#EXTINF:-1,Next\nhttp://a/2.ts".reader())
+        assertEquals(listOf("Next"), result.channels.map { it.name })
+    }
+
+    @Test
     fun `extractName ignores commas inside quotes`() {
         assertEquals("Name", M3uParser.extractName("""#EXTINF:-1 group-title="a,b",Name"""))
         assertEquals("", M3uParser.extractName("#EXTINF:-1"))

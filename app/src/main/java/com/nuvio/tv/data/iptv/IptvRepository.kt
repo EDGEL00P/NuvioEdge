@@ -46,6 +46,15 @@ class IptvRepository @Inject constructor(
             interceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
             networkInterceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
         }
+        // Never follow https -> http: the redirected request would carry the login in clear text.
+        .addNetworkInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            if (response.isRedirect && IptvSafety.isInsecureRedirect(chain.request().isHttps, response.header("Location"))) {
+                response.close()
+                throw IptvSafety.InsecureRedirectException()
+            }
+            response
+        }
         .build()
 
     private val cache = IptvFileCache(File(context.cacheDir, "nuvio_live"), vault::cacheKey)
@@ -65,8 +74,11 @@ class IptvRepository @Inject constructor(
         epgUrl: String
     ): IptvSource {
         val cleanUrl = if (type == IptvSourceType.XTREAM) XtreamClient.normalizeServer(url) else url.trim()
-        if (!cleanUrl.startsWith("http://", true) && !cleanUrl.startsWith("https://", true)) {
+        if (!IptvSafety.isWebUrl(cleanUrl)) {
             throw IptvException("Enter a full http:// or https:// address")
+        }
+        if (epgUrl.isNotBlank() && !IptvSafety.isWebUrl(epgUrl)) {
+            throw IptvException("Enter a full http:// or https:// guide address")
         }
         val source = IptvSource(
             id = UUID.randomUUID().toString().take(8),
@@ -101,7 +113,7 @@ class IptvRepository @Inject constructor(
                 ChannelLoadResult(
                     channels = results.flatMap { (_, r) -> r.getOrNull()?.channels.orEmpty() },
                     errors = results.mapNotNull { (s, r) ->
-                        r.exceptionOrNull()?.let { s.name to (it.message ?: "Could not load") }
+                        r.exceptionOrNull()?.let { s.name to userMessage(it) }
                     }.toMap()
                 )
             }
@@ -127,14 +139,16 @@ class IptvRepository @Inject constructor(
         force: Boolean
     ): Map<String, List<EpgProgramme>> {
         val url = source.epgUrl.ifBlank {
-            playlists[source.id]?.second?.headerEpgUrl
+            playlists[source.id]?.second?.headerEpgUrl?.takeIf(IptvSafety::isWebUrl)
                 ?: if (source.type == IptvSourceType.XTREAM) XtreamClient.xmltvUrl(source) else null
         } ?: return emptyMap()
         val key = "epg|${source.contentKey}|$url"
         val parser = XmltvParser(nowMs = System.currentTimeMillis())
         val wantedIds = channels.mapNotNullTo(HashSet()) { it.epgId }
         val wantedNames = channels.mapTo(HashSet()) { XmltvParser.normalizeChannelName(it.epgName ?: it.name) }
-        val result = cached(key, GUIDE_MAX_AGE_MS, force, url) { parser.parse(it, wantedIds, wantedNames) }
+        val result = cached(key, GUIDE_MAX_AGE_MS, IptvSafety.MAX_GUIDE_BYTES, force, url) {
+            parser.parse(it, wantedIds, wantedNames)
+        }
         return channels.mapNotNull { channel ->
             val guideId = channel.epgId?.takeIf { result.programmes.containsKey(it) }
                 ?: result.channelIdsByName[XmltvParser.normalizeChannelName(channel.epgName ?: channel.name)]
@@ -146,20 +160,20 @@ class IptvRepository @Inject constructor(
         val memo = playlists[source.id]
         if (!force && memo != null && memo.first == source.contentKey) return memo.second
         val playlist = when (source.type) {
-            IptvSourceType.M3U -> cached("m3u|${source.contentKey}", PLAYLIST_MAX_AGE_MS, force, source.url) { input ->
-                M3uParser(source.id).parse(input.bufferedReader())
-            }
+            IptvSourceType.M3U -> cached(
+                "m3u|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_PLAYLIST_BYTES, force, source.url
+            ) { input -> M3uParser(source.id).parse(input.reader()) }
             IptvSourceType.XTREAM -> {
                 if (force || cache.ageMs("xc-streams|${source.contentKey}") == null) {
                     // Login check first so a wrong password reads as "Login rejected", not a parse error.
                     XtreamClient.parseAccount(download(XtreamClient.apiUrl(source).toString()))
                 }
                 val categories = cached(
-                    "xc-cats|${source.contentKey}", PLAYLIST_MAX_AGE_MS, force,
+                    "xc-cats|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_API_BYTES, force,
                     XtreamClient.apiUrl(source, "get_live_categories").toString()
                 ) { XtreamClient.parseCategories(it.bufferedReader().readText()) }
                 val channels = cached(
-                    "xc-streams|${source.contentKey}", PLAYLIST_MAX_AGE_MS, force,
+                    "xc-streams|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_API_BYTES, force,
                     XtreamClient.apiUrl(source, "get_live_streams").toString()
                 ) { XtreamClient.parseLiveStreams(it.bufferedReader().readText(), source, categories) }
                 IptvPlaylist(channels)
@@ -174,13 +188,20 @@ class IptvRepository @Inject constructor(
      * Returns [parse] of the cached copy when fresh; otherwise downloads into the encrypted cache
      * first. If the download fails, a stale copy is still used.
      */
-    private fun <T> cached(key: String, maxAgeMs: Long, force: Boolean, url: String, parse: (InputStream) -> T): T {
+    private fun <T> cached(
+        key: String,
+        maxAgeMs: Long,
+        maxBytes: Long,
+        force: Boolean,
+        url: String,
+        parse: (InputStream) -> T
+    ): T {
         val age = cache.ageMs(key)
         if (!force && age != null && age < maxAgeMs) {
             runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
         }
         try {
-            downloadInto(key, url)
+            downloadInto(key, url, maxBytes)
         } catch (e: IOException) {
             if (age != null) runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
             throw IptvException(friendly(e), e)
@@ -188,11 +209,12 @@ class IptvRepository @Inject constructor(
         return cache.read(key, parse) ?: throw IptvException("Could not read the downloaded data")
     }
 
-    private fun downloadInto(key: String, url: String) {
+    private fun downloadInto(key: String, url: String, maxBytes: Long) {
         http.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty response")
-            cache.write(key) { out -> body.byteStream().copyTo(out, 64 * 1024) }
+            if (body.contentLength() > maxBytes) throw IptvSafety.TooLargeException()
+            cache.write(key) { out -> IptvSafety.copyLimited(body.byteStream(), out, maxBytes) }
         }
     }
 
@@ -200,7 +222,10 @@ class IptvRepository @Inject constructor(
         try {
             http.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                response.body?.string() ?: throw IOException("Empty response")
+                val body = response.body ?: throw IOException("Empty response")
+                val bytes = java.io.ByteArrayOutputStream()
+                IptvSafety.copyLimited(body.byteStream(), bytes, IptvSafety.MAX_LOGIN_BYTES)
+                bytes.toString(Charsets.UTF_8.name())
             }
         } catch (e: IOException) {
             throw IptvException(friendly(e), e)
@@ -209,6 +234,9 @@ class IptvRepository @Inject constructor(
     private fun friendly(e: IOException): String {
         val message = e.message.orEmpty()
         return when {
+            e is IptvSafety.TooLargeException -> "The server sent more data than NuvioEdge allows"
+            e is IptvSafety.InsecureRedirectException ->
+                "The server tried to switch to an unencrypted connection, so it was blocked"
             message.startsWith("HTTP 401") || message.startsWith("HTTP 403") -> "Access denied by the server ($message)"
             message.startsWith("HTTP 404") -> "Address not found (HTTP 404)"
             message.startsWith("HTTP") -> "Server error ($message)"
@@ -220,6 +248,14 @@ class IptvRepository @Inject constructor(
     }
 
     companion object {
+        /** Only our own messages reach the screen; raw exception text can contain URLs with logins. */
+        fun userMessage(error: Throwable): String = when (error) {
+            is IptvException -> error.message ?: GENERIC_ERROR
+            is OutOfMemoryError -> "This source is too large for this device"
+            else -> GENERIC_ERROR
+        }
+
+        private const val GENERIC_ERROR = "Could not load this source"
         private const val PLAYLIST_MAX_AGE_MS = 6 * 60 * 60 * 1000L
         private const val GUIDE_MAX_AGE_MS = 12 * 60 * 60 * 1000L
 
