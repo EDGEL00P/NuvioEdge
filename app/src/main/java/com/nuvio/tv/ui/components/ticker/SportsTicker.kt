@@ -76,7 +76,14 @@ class SportsTickerViewModel @Inject constructor(
             if (!on) flowOf(emptyList())
             else flow {
                 while (true) {
-                    emit(repository.fetchGames())
+                    val games = try {
+                        repository.fetchGames()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        null // offline or ESPN down: keep showing the last scores
+                    }
+                    if (games != null) emit(games)
                     delay(REFRESH_MS)
                 }
             }
@@ -84,7 +91,7 @@ class SportsTickerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun toggle() {
-        viewModelScope.launch { repository.setEnabled(!enabled.value) }
+        viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.setEnabled(!enabled.value) }
     }
 
     private companion object {

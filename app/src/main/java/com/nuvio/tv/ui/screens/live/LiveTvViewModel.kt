@@ -58,7 +58,7 @@ class LiveTvViewModel @Inject constructor(
     private var loadJob: Job? = null
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(liveErrors) {
             repository.sources.distinctUntilChanged().collect { sources ->
                 val changed = sources.map { it.contentKey to it.enabled } !=
                     _uiState.value.sources.map { it.contentKey to it.enabled }
@@ -66,12 +66,12 @@ class LiveTvViewModel @Inject constructor(
                 if (changed || _uiState.value.allChannels.isEmpty()) load(force = false)
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(liveErrors) {
             repository.favorites.collect { favs ->
                 _uiState.update { state -> state.copy(favorites = favs).withGroups() }
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(liveErrors) {
             var ticks = 0
             while (isActive) {
                 delay(30_000)
@@ -91,18 +91,19 @@ class LiveTvViewModel @Inject constructor(
             _uiState.update { it.copy(allChannels = emptyList(), guide = emptyMap(), errors = emptyMap(), loading = false).withGroups() }
             return
         }
-        loadJob = viewModelScope.launch {
+        loadJob = viewModelScope.launch(liveErrors) {
             _uiState.update { it.copy(loading = true) }
-            val result = repository.loadChannels(sources, force)
-            _uiState.update {
-                it.copy(allChannels = result.channels, errors = result.errors, loading = false).withGroups()
-            }
-            _uiState.update { it.copy(guideLoading = true) }
             try {
+                val result = repository.loadChannels(sources, force)
+                _uiState.update {
+                    it.copy(allChannels = result.channels, errors = result.errors, loading = false).withGroups()
+                }
+                _uiState.update { it.copy(guideLoading = true) }
                 val guide = repository.loadGuide(sources, result.channels, force)
                 _uiState.update { it.copy(guide = guide, nowMs = System.currentTimeMillis()) }
             } finally {
-                _uiState.update { it.copy(guideLoading = false) }
+                // Never leave a spinner up, whatever happened.
+                _uiState.update { it.copy(loading = false, guideLoading = false) }
             }
         }
     }
@@ -110,15 +111,15 @@ class LiveTvViewModel @Inject constructor(
     fun selectGroup(key: String) = _uiState.update { it.copy(selectedGroup = key) }
 
     fun toggleFavorite(channel: IptvChannel) {
-        viewModelScope.launch { repository.toggleFavorite(channel.id) }
+        viewModelScope.launch(liveErrors) { repository.toggleFavorite(channel.id) }
     }
 
     fun removeSource(id: String) {
-        viewModelScope.launch { repository.removeSource(id) }
+        viewModelScope.launch(liveErrors) { repository.removeSource(id) }
     }
 
     fun setSourceEnabled(id: String, enabled: Boolean) {
-        viewModelScope.launch { repository.setSourceEnabled(id, enabled) }
+        viewModelScope.launch(liveErrors) { repository.setSourceEnabled(id, enabled) }
     }
 
     fun resetAddState() = _addState.update { AddSourceState() }
@@ -133,7 +134,7 @@ class LiveTvViewModel @Inject constructor(
         onDone: () -> Unit
     ) {
         if (_addState.value.saving) return
-        viewModelScope.launch {
+        viewModelScope.launch(liveErrors) {
             _addState.value = AddSourceState(saving = true)
             runCatching { repository.addSource(name, type, url, username, password, epgUrl) }
                 .onSuccess {
@@ -181,6 +182,8 @@ object LiveZapSession {
     @Volatile private var previous: IptvChannel? = null
     /** Copies already tried for the channel that failed. */
     private val tried = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    /** Reconnects of the same stream when no backup copy is left. */
+    private val reconnects = ReconnectBudget()
 
     private val _typedNumber = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val typedNumber: StateFlow<String?> = _typedNumber.asStateFlow()
@@ -203,6 +206,7 @@ object LiveZapSession {
         index = list.indexOfFirst { it.id == channel.id }
         current = channel
         tried.clear()
+        reconnects.reset()
     }
 
     /** The channel playing now (or last played), so lists can return focus to it. */
@@ -243,6 +247,19 @@ object LiveZapSession {
         return true
     }
 
+    /**
+     * Live playback failed or froze: switch to an untried copy of the channel, otherwise reconnect
+     * the same stream (at most 3 times in 5 minutes, so a dead channel ends on the error screen).
+     */
+    fun recover(nowMs: Long = android.os.SystemClock.elapsedRealtime()): Boolean {
+        if (failover()) return true
+        val go = navigator ?: return false
+        val channel = current ?: return false
+        if (!reconnects.tryAcquire(nowMs)) return false
+        go(channel)
+        return true
+    }
+
     /** A digit pressed during live playback; the channel opens 1.5 s after the last digit. */
     fun onDigit(digit: Int): Boolean {
         if (navigator == null) return false
@@ -265,6 +282,7 @@ object LiveZapSession {
         current = channel
         channels.indexOfFirst { it.id == channel.id }.takeIf { it >= 0 }?.let { index = it }
         tried.clear()
+        reconnects.reset()
         go(channel)
         return true
     }
@@ -277,6 +295,7 @@ object LiveZapSession {
         current = null
         previous = null
         tried.clear()
+        reconnects.reset()
         _typedNumber.value = null
     }
 }

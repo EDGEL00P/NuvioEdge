@@ -11,6 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -38,7 +39,7 @@ class SportsTickerRepository @Inject constructor(
 
     /** On by default; the only ticker setting. */
     val enabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
-        factory.get(pid, FEATURE).data.map { it[enabledKey] ?: true }
+        factory.get(pid, FEATURE).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { it[enabledKey] ?: true }
     }
 
     suspend fun setEnabled(value: Boolean) {

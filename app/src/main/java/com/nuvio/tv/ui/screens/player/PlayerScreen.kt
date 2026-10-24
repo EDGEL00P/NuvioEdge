@@ -272,7 +272,7 @@ fun PlayerScreen(
             if (!uiState.isBuffering) return@LaunchedEffect
             kotlinx.coroutines.delay(LIVE_STALL_TIMEOUT_MS)
         }
-        com.nuvio.tv.ui.screens.live.LiveZapSession.failover()
+        com.nuvio.tv.ui.screens.live.LiveZapSession.recover()
     }
     val exitPlayerFromError: () -> Unit = exitPlayerFromError@{
         if (exitDispatched) return@exitPlayerFromError

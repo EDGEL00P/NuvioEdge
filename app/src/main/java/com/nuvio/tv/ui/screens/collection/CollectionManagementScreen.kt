@@ -199,6 +199,11 @@ fun CollectionManagementScreen(
                             try {
                                 val json = viewModel.getExportJson()
                                 withContext(Dispatchers.IO) {
+                                    // MediaStore.Downloads only exists on Android 10+; on older TVs (e.g. Fire OS 7 / Android 9)
+                                    // touching it throws NoClassDefFoundError, which the catch below would not stop.
+                                    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+                                        throw java.io.IOException("Saving to Downloads needs Android 10 or newer")
+                                    }
                                     val resolver = context.contentResolver
                                     // Delete existing file first
                                     val existingUri = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI

@@ -22,7 +22,7 @@ class M3uParser(private val sourceId: String) {
     private val seen = HashMap<String, Int>()
 
     fun consumeLine(rawLine: String) {
-        val line = rawLine.trim().removePrefix("﻿")
+        val line = rawLine.trim().removePrefix("\uFEFF")
         if (line.isEmpty()) return
         when {
             line.startsWith("#EXTM3U") -> {

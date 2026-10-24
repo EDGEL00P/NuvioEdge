@@ -145,3 +145,8 @@ fun LiveNumberEntryOverlay() {
 }
 
 private fun formatClock(ms: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(ms))
+
+/** Logs a failed Live TV / ticker background task instead of crashing the app (ViewModel scopes are supervisor scopes). */
+internal val liveErrors = kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+    android.util.Log.w("NuvioLive", "Background task failed", e)
+}

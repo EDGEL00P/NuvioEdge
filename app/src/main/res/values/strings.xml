@@ -3451,7 +3451,10 @@
     <string name="multiview_button">Multiview</string>
     <string name="multiview_empty_tile">Press OK to choose a channel</string>
     <string name="multiview_pick_title">Choose a channel</string>
-    <string name="multiview_tile_error">This stream couldn\'t start (%1$s). Your TV may have reached its limit of video streams.</string>
+    <string name="multiview_layout">Screens</string>
+    <string name="multiview_device_limit">This TV can show up to %1$d at once</string>
+    <string name="multiview_reduced">Your TV couldn\'t keep up, so multiview now shows %1$d</string>
+    <string name="multiview_tile_recovering">Reconnecting (%1$s)…</string>
     <string name="live_search">Search</string>
     <string name="live_search_title">Search channels and guide</string>
     <string name="live_search_hint">Team, show or channel</string>

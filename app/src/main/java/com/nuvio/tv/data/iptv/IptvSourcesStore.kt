@@ -10,6 +10,7 @@ import com.nuvio.tv.data.local.ProfileDataStoreFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -40,11 +41,11 @@ class IptvSourcesStore @Inject constructor(
     private fun purpose(profileId: Int) = "nuvio-live/sources/v1/profile:$profileId"
 
     val sources: Flow<List<IptvSource>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        store(pid).data.map { prefs -> prefs[sourcesKey]?.let { unseal(it, pid) }.orEmpty() }
+        store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { prefs -> prefs[sourcesKey]?.let { unseal(it, pid) }.orEmpty() }
     }
 
     val favorites: Flow<Set<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        store(pid).data.map { it[favoritesKey].orEmpty() }
+        store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { it[favoritesKey].orEmpty() }
     }
 
     suspend fun current(): List<IptvSource> = sources.first()

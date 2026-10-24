@@ -61,6 +61,71 @@ class AndroidKeystoreKey(private val alias: String) : KeyEncryptionKey {
 }
 
 /**
+ * The Android Keystore key, with a safety net for boxes whose Keystore is broken (it fails on some
+ * devices and uncertified boxes): if it can't encrypt, an app-private AES-256 key in no-backup
+ * storage is used instead, so Live TV keeps working and data stays encrypted at rest. Decryption
+ * tries both keys, so data written either way stays readable.
+ */
+internal class ResilientKey(
+    private val primary: KeyEncryptionKey,
+    private val software: (create: Boolean) -> KeyEncryptionKey?
+) : KeyEncryptionKey {
+    @Volatile
+    private var primaryBroken = false
+
+    override fun encrypt(plain: ByteArray, associatedData: ByteArray): ByteArray {
+        if (!primaryBroken) {
+            try {
+                return primary.encrypt(plain, associatedData)
+            } catch (e: Exception) {
+                primaryBroken = true
+                Log.w("IptvVault", "Android Keystore unavailable; using the app-private key", e)
+            }
+        }
+        val fallback = software(true) ?: throw IOException("No encryption key available")
+        return fallback.encrypt(plain, associatedData)
+    }
+
+    override fun decrypt(blob: ByteArray, associatedData: ByteArray): ByteArray {
+        var failure: Exception? = null
+        if (!primaryBroken) {
+            try {
+                return primary.decrypt(blob, associatedData)
+            } catch (e: Exception) {
+                failure = e
+            }
+        }
+        software(false)?.let { fallback ->
+            try {
+                return fallback.decrypt(blob, associatedData)
+            } catch (e: Exception) {
+                failure = e
+            }
+        }
+        throw failure as? IOException ?: IOException("Could not decrypt", failure)
+    }
+}
+
+/** Loads (or, with [create], makes) the app-private fallback key file. */
+internal fun softwareKeyFile(file: File, create: Boolean): KeyEncryptionKey? {
+    if (file.exists()) {
+        val raw = file.readBytes()
+        if (raw.size == 32) return SoftwareAesGcmKey(SecretKeySpec(raw, "AES")).also { raw.fill(0) }
+        if (!create) return null
+    }
+    if (!create) return null
+    val raw = ByteArray(32).also(SecureRandom()::nextBytes)
+    file.parentFile?.mkdirs()
+    val tmp = File(file.parentFile, file.name + ".tmp")
+    tmp.writeBytes(raw)
+    if (!tmp.renameTo(file)) {
+        tmp.delete()
+        throw IOException("Could not store fallback key")
+    }
+    return SoftwareAesGcmKey(SecretKeySpec(raw, "AES")).also { raw.fill(0) }
+}
+
+/**
  * Holds every key Nuvio Live uses:
  *  - a non-exportable Android Keystore key that seals saved sources (URLs, logins), and
  *  - a random cache data key, stored only wrapped by that Keystore key, for the encrypted
@@ -73,7 +138,10 @@ class IptvVault internal constructor(
 ) {
     @Inject
     constructor(@ApplicationContext context: Context) : this(
-        kek = AndroidKeystoreKey(KEYSTORE_ALIAS),
+        kek = File(context.noBackupFilesDir, "nuvio_live").let { dir ->
+            val fallbackFile = File(dir, FALLBACK_KEY_FILE)
+            ResilientKey(AndroidKeystoreKey(KEYSTORE_ALIAS)) { create -> softwareKeyFile(fallbackFile, create) }
+        },
         keyDir = File(context.noBackupFilesDir, "nuvio_live")
     )
 
@@ -110,6 +178,7 @@ class IptvVault internal constructor(
         private const val TAG = "IptvVault"
         private const val KEYSTORE_ALIAS = "nuvio_live_kek_v1"
         private const val DATA_KEY_FILE = "cache_key.bin"
+        private const val FALLBACK_KEY_FILE = "fallback_kek.bin"
         private val DATA_KEY_AAD = "nuvio-live/cache-key/v1".toByteArray()
     }
 }
