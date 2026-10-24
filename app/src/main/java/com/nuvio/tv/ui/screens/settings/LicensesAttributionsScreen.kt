@@ -418,5 +418,10 @@ private fun playbackLicenseItems() = listOf(
         title = stringResource(R.string.licenses_attributions_libmpv_title),
         body = stringResource(R.string.licenses_attributions_libmpv_body),
         url = LibMpvAndroidUrl
+    ),
+    LicenseAttributionItem(
+        title = "VesperTV",
+        body = stringResource(R.string.live_attribution),
+        url = "https://github.com/NoXqc/VesperTV"
     )
 )

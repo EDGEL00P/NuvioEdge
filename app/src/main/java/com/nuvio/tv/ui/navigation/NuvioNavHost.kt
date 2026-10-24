@@ -900,6 +900,28 @@ private fun PlaybackNavHost(
                 }
             }
 
+            if (backStackEntry.arguments?.getString("contentType") == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) {
+                // Live TV: CH+/CH- replaces this player with the next/previous channel.
+                androidx.compose.runtime.DisposableEffect(backStackEntry) {
+                    val zap: (com.nuvio.tv.data.iptv.IptvChannel) -> Unit = { channel ->
+                        navController.navigate(
+                            com.nuvio.tv.ui.screens.live.liveChannelPlayerRoute(
+                                channel,
+                                com.nuvio.tv.ui.screens.live.LiveZapSession.nowTitle(channel)
+                            )
+                        ) {
+                            popUpTo(Screen.Player.route) { inclusive = true }
+                        }
+                    }
+                    com.nuvio.tv.ui.screens.live.LiveZapSession.navigator = zap
+                    onDispose {
+                        if (com.nuvio.tv.ui.screens.live.LiveZapSession.navigator === zap) {
+                            com.nuvio.tv.ui.screens.live.LiveZapSession.navigator = null
+                        }
+                    }
+                }
+            }
+
             PlayerScreen(
                 onBackPress = { currentVideoId, currentSeason, currentEpisode, autoPlayEnabled, playbackCompleted ->
                     val args = backStackEntry.arguments
@@ -1207,6 +1229,14 @@ private fun PlaybackNavHost(
                             heroBackdropUrl = heroBackdrop
                         )
                     )
+                }
+            )
+        }
+
+        composable(Screen.Live.route) {
+            com.nuvio.tv.ui.screens.live.LiveTvScreen(
+                onPlayChannel = { channel, nowTitle ->
+                    navController.navigate(com.nuvio.tv.ui.screens.live.liveChannelPlayerRoute(channel, nowTitle))
                 }
             )
         }

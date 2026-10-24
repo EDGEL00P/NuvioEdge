@@ -80,11 +80,19 @@ class SentryNetworkBreadcrumbInterceptor : Interceptor {
     }
 
     private fun scrubbedUrl(url: HttpUrl): String {
-        return url.newBuilder()
+        val builder = url.newBuilder()
             .query(null)
             .fragment(null)
-            .build()
-            .toString()
+        // Xtream-style stream URLs carry the login in the path: /live/<user>/<pass>/<id>.ts
+        val segments = url.pathSegments
+        if (segments.size >= 4 && segments[0].lowercase() in XTREAM_PATH_PREFIXES) {
+            builder.setPathSegment(1, "redacted").setPathSegment(2, "redacted")
+        }
+        return builder.build().toString()
+    }
+
+    private companion object {
+        val XTREAM_PATH_PREFIXES = setOf("live", "movie", "series", "timeshift")
     }
 
     private fun elapsedMs(startedAtNs: Long): Long {

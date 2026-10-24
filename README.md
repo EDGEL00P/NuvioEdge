@@ -1,32 +1,43 @@
-<div align="center">
+# NuvioEdge
 
-  <img src="assets/brand/app_logo_wordmark.png" alt="Nuvio" width="300" />
+NuvioEdge is a fork of [NuvioTV](https://github.com/NuvioMedia/NuvioTV) for Android TV, Google TV and Fire TV. It adds built-in Live TV (IPTV).
 
-  <p>
-    A free, open-source media app for your phone, your desktop, and the TV you already own.
-    <br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
-  </p>
+It is not affiliated with or endorsed by the Nuvio or VesperTV projects.
 
-  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/NuvioMedia/NuvioTV/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+## Live TV
 
-</div>
+Live TV has its own sidebar tab and supports:
 
-## Get Nuvio TV
+- **Sources:** M3U playlists, Xtream Codes logins, or both, added from **Live TV → Sources**. Each source is checked before it's saved.
+- **Channel list:** channels are grouped by the playlist's groups, plus an "All channels" list and a "Favourites" list. Hold Select on a channel to add it to Favourites.
+- **TV guide:** an XMLTV guide shows what's on now and next, with a progress bar. The guide comes from the playlist's `url-tvg`, from Xtream's `xmltv.php`, or from a guide URL you enter. Plain and gzip guides both work. Channels match on `tvg-id`, or on their name if there's no ID.
+- **Playback:** channels play in Nuvio's own player. **CH+ / CH−**, or Next/Previous, changes channel without leaving the player.
+- **HTTP headers:** a playlist's `#EXTVLCOPT` User-Agent, Referrer and Origin lines are passed to the player.
 
-- [Android TV on Google Play](https://play.google.com/store/apps/details?id=com.nuvio.app)
-- [Android TV APK](https://github.com/NuvioMedia/NuvioTV/releases/latest)
+### Encryption and privacy
 
-## Build from source
+- **Saved sources:** playlist URLs, Xtream usernames and passwords, and guide URLs are stored as AES-256-GCM ciphertext. The key is a non-exportable Android Keystore key, and each profile's data is tied to that profile.
+- **Cached files:** downloaded playlists, Xtream channel lists and guides are cached in encrypted 64 KiB chunks (AES-256-GCM). Truncation and tampering are detected. The cache key is random and stored only after being encrypted by the Keystore key. Cache file names are HMAC-SHA256 values, so no URL or login appears on disk.
+- **Network:** Live TV requests skip the shared HTTP disk cache, request logging and Sentry breadcrumbs. Sentry also removes Xtream login details from stream paths.
+- **Device only:** Live TV settings aren't part of Nuvio cloud sync, and the app has backups turned off.
+- **HTTPS:** your provider's https:// addresses are used when you enter them. Plain `http://` sources are labelled "Not encrypted (HTTP)", because many providers only offer HTTP.
 
-```bash
-git clone https://github.com/NuvioMedia/NuvioTV.git
-cd NuvioTV
+## Build
+
+The Live TV tests and a debug build:
+
+```
+./gradlew :app:testFullDebugUnitTest --tests 'com.nuvio.tv.data.iptv.*'
 ./gradlew :app:assembleFullDebug
 ```
 
-Nuvio TV is built with Kotlin, Jetpack Compose, TV Material 3, and Media3. Development requires Android Studio, a JDK, and the Android SDK.
+The `full` build installs as `com.edgeloop.nuvioedge`, so it can sit next to the official Nuvio app. The in-app updater checks this repository's releases.
 
-## License
+See the [upstream NuvioTV README](https://github.com/NuvioMedia/NuvioTV#readme) for general build setup, such as `local.properties`.
 
-[GNU General Public License v3.0](./LICENSE)
+## Licence and credits
+
+GPL-3.0, inherited from both upstream projects. See [LICENSE](LICENSE).
+
+- [NuvioTV](https://github.com/NuvioMedia/NuvioTV) by NuvioMedia: the base app.
+- [VesperTV](https://github.com/NoXqc/VesperTV) by NoXqc: the M3U, Xtream and XMLTV handling was ported from its Dart code to Kotlin. The VesperTV name and logo are not used.

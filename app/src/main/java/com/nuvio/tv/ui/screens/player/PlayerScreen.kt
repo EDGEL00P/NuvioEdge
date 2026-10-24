@@ -930,11 +930,13 @@ fun PlayerScreen(
                         KeyEvent.KEYCODE_CHANNEL_UP,
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS,
                         KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                            val forward = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
+                                keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_CHANNEL_UP
                             if (uiState.chapters.isEmpty()) {
-                                false
+                                // Live TV: change channel.
+                                uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                    com.nuvio.tv.ui.screens.live.LiveZapSession.zap(forward)
                             } else {
-                                val forward = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
-                                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_CHANNEL_UP
                                 viewModel.onEvent(PlayerEvent.OnSkipChapter(forward))
                                 true
                             }
