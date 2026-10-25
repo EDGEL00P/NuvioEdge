@@ -50,6 +50,11 @@ import com.nuvio.tv.R
 import com.nuvio.tv.data.sports.GameState
 import com.nuvio.tv.data.sports.SportsTickerRepository
 import com.nuvio.tv.data.sports.TickerGame
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import com.nuvio.tv.data.sports.TeamLine
+import com.nuvio.tv.data.sports.TickerKind
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -181,15 +186,19 @@ private fun GameCard(game: TickerGame) {
                 .background(TickerColors.leagueTag),
             contentAlignment = Alignment.Center
         ) {
-            Text(game.league, color = TickerColors.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            Text(
+                game.league,
+                color = TickerColors.text,
+                fontWeight = FontWeight.Black,
+                fontSize = if (game.league.length > 4) 13.sp else 15.sp,
+                maxLines = 1
+            )
         }
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-            val showScores = game.state != GameState.PRE
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TeamScore(game.away.abbreviation, game.away.score.takeIf { showScores })
-                Text("  @  ", color = TickerColors.muted, fontSize = 14.sp)
-                TeamScore(game.home.abbreviation, game.home.score.takeIf { showScores })
+            when (game.kind) {
+                TickerKind.LEADERBOARD -> Leaderboard(game)
+                TickerKind.TEAMS, TickerKind.HEAD_TO_HEAD -> Matchup(game)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (game.state == GameState.LIVE) {
@@ -203,7 +212,9 @@ private fun GameCard(game: TickerGame) {
                     )
                 }
                 Text(
-                    text = game.status,
+                    // An event with no running order yet shows its name on the top line instead.
+                    text = listOfNotNull(game.event.takeUnless { game.kind == TickerKind.LEADERBOARD && game.leaders.isEmpty() }, game.status.ifBlank { null })
+                        .joinToString(" · "),
                     color = TickerColors.muted,
                     fontSize = 13.sp,
                     maxLines = 1,
@@ -238,11 +249,49 @@ private fun GameCard(game: TickerGame) {
     }
 }
 
+/** "AWAY 21  @  HOME 17" for team games, "J. Sinner 6 6  vs  C. Alcaraz 4 3" for tennis and fights. */
 @Composable
-private fun TeamScore(abbreviation: String, score: String?) {
-    Text(abbreviation, color = TickerColors.text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+private fun Matchup(game: TickerGame) {
+    val showScores = game.state != GameState.PRE
+    val final = game.state == GameState.FINAL
+    val separator = if (game.kind == TickerKind.TEAMS) "  @  " else "  vs  "
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TeamScore(game.away, showScores, highlight = final && game.away.winner)
+        Text(separator, color = TickerColors.muted, fontSize = 14.sp)
+        TeamScore(game.home, showScores, highlight = final && game.home.winner)
+    }
+}
+
+/** "1 S. Scheffler -16   T2 R. McIlroy -14   T2 X. Schauffele -14" for golf and racing. */
+@Composable
+private fun Leaderboard(game: TickerGame) {
+    val line = buildAnnotatedString {
+        game.leaders.forEachIndexed { i, leader ->
+            if (i > 0) append("    ")
+            withStyle(SpanStyle(color = TickerColors.muted, fontWeight = FontWeight.Bold)) { append(leader.position + " ") }
+            withStyle(SpanStyle(color = TickerColors.text, fontWeight = FontWeight.Bold)) { append(leader.name) }
+            leader.score?.let { withStyle(SpanStyle(color = TickerColors.odds, fontWeight = FontWeight.Black)) { append(" $it") } }
+        }
+    }
+    if (line.isEmpty()) {
+        Text(game.event.orEmpty(), color = TickerColors.text, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        return
+    }
+    Text(line, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+@Composable
+private fun TeamScore(side: TeamLine, showScore: Boolean, highlight: Boolean) {
+    Text(
+        side.abbreviation,
+        color = if (highlight) TickerColors.odds else TickerColors.text,
+        fontWeight = FontWeight.Bold,
+        fontSize = 18.sp,
+        maxLines = 1
+    )
+    val score = side.score.takeIf { showScore }
     if (score != null) {
-        Text(" $score", color = TickerColors.text, fontWeight = FontWeight.Black, fontSize = 18.sp)
+        Text(" $score", color = TickerColors.text, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1)
     }
 }
 

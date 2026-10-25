@@ -12,14 +12,14 @@ class EspnScoreboardParserTest {
 
     @Test
     fun `parses teams, state, status and odds`() {
-        val games = EspnScoreboardParser.parse(fixture, "NFL")
+        val games = EspnScoreboardParser.parse(fixture, "NFL", zone = java.time.ZoneId.of("America/New_York"))
         assertEquals(2, games.size)
         val pre = games[0]
         assertEquals("NFL", pre.league)
         assertEquals("PIT", pre.away.abbreviation)
         assertEquals("NO", pre.home.abbreviation)
         assertEquals(GameState.PRE, pre.state)
-        assertEquals("10/25 - 9:30 AM EDT", pre.status)
+        assertEquals("Sun 9:30 AM", pre.status) // start time shown in the TV's zone
         val odds = pre.odds!!
         assertEquals("PIT -3", odds.line)
         assertEquals("44.5", odds.total)
