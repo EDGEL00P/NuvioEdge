@@ -74,7 +74,8 @@ class SportsTickerRepository @Inject constructor(
         leagues: List<SportsLeague> = ALL_LEAGUES,
         nowMs: Long = System.currentTimeMillis()
     ): List<TickerGame> = withContext(Dispatchers.IO) {
-        val permits = Semaphore(4)
+        // Wider league list: keep cold start snappy without hammering ESPN from one device.
+        val permits = Semaphore(8)
         coroutineScope {
             leagues.filter { (cache[it.path]?.dueAtMs ?: 0L) <= nowMs }.map { league ->
                 async {

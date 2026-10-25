@@ -150,7 +150,10 @@ internal fun ScoresBrowser(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                        }
+                        },
+                        trailingContent = if (game.state == GameState.LIVE) {
+                            { LiveBadge() }
+                        } else null
                     )
                 }
             }
@@ -163,6 +166,21 @@ internal fun ScoresBrowser(
 }
 
 private fun gameKey(game: TickerGame): String = game.league + ":" + game.id
+
+@Composable
+private fun LiveBadge() {
+    val live = androidx.compose.ui.graphics.Color(0xFFE11D48)
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Box(Modifier.size(7.dp).background(live, androidx.compose.foundation.shape.CircleShape))
+        Text(
+            text = stringResource(R.string.ticker_live),
+            style = MaterialTheme.typography.labelSmall,
+            color = live,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 5.dp)
+        )
+    }
+}
 
 @Composable
 private fun GamePanel(

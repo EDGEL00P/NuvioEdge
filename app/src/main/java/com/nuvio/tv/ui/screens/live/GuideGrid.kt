@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -95,6 +97,7 @@ internal fun GuideGrid(
     modifier: Modifier = Modifier
 ) {
     val timeFormat = rememberTimeFormatter()
+    val nowLineColor = NuvioTheme.colors.FocusBackground
     val nowSlot = windowStartFor(nowMs)
     var windowStart by remember { mutableLongStateOf(nowSlot) }
     val windowEnd = windowStart + WINDOW_MS
@@ -124,7 +127,22 @@ internal fun GuideGrid(
                         }
                     }
                 }
-                LazyColumn(contentPadding = PaddingValues(bottom = TICKER_CLEARANCE)) {
+                LazyColumn(
+                    contentPadding = PaddingValues(bottom = TICKER_CLEARANCE),
+                    modifier = Modifier.drawBehind {
+                        // "Now" line down the grid, like a TV guide. Only when the current time is
+                        // inside the visible window (it leaves the window once you pan into the future).
+                        if (nowMs in windowStart until windowEnd) {
+                            val x = nameWidth.toPx() + dpPerMs.toPx() * (nowMs - windowStart).toFloat()
+                            drawLine(
+                                color = nowLineColor,
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = 2.dp.toPx()
+                            )
+                        }
+                    }
+                ) {
                     items(channels, key = { it.id }) { channel ->
                         Row(Modifier.fillMaxWidth().height(56.dp)) {
                             Text(
