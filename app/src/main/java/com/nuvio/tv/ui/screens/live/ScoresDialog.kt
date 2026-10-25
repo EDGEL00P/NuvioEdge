@@ -6,6 +6,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Scoreboard
+import androidx.compose.ui.Alignment
+import androidx.tv.material3.Icon
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -121,12 +126,26 @@ internal fun ScoresBrowser(
     Row(modifier = modifier) {
         val list = games
         when {
-            list == null -> Box(Modifier.width(360.dp)) { LoadingIndicator(Modifier.size(32.dp)) }
-            list.isEmpty() -> Text(
-                stringResource(R.string.scores_empty),
-                color = NuvioTheme.colors.TextSecondary,
-                modifier = Modifier.width(360.dp)
-            )
+            list == null -> Box(Modifier.width(360.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                LoadingIndicator(Modifier.size(36.dp))
+            }
+            list.isEmpty() -> Column(
+                modifier = Modifier.width(360.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Default.Scoreboard,
+                    contentDescription = null,
+                    tint = NuvioTheme.colors.TextTertiary,
+                    modifier = Modifier.size(44.dp)
+                )
+                Text(
+                    stringResource(R.string.scores_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuvioTheme.colors.TextSecondary
+                )
+            }
             else -> LazyColumn(
                 modifier = Modifier.width(360.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -169,7 +188,7 @@ private fun gameKey(game: TickerGame): String = game.league + ":" + game.id
 
 @Composable
 private fun LiveBadge() {
-    val live = androidx.compose.ui.graphics.Color(0xFFE11D48)
+    val live = NuvioTheme.colors.Error
     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Box(Modifier.size(7.dp).background(live, androidx.compose.foundation.shape.CircleShape))
         Text(

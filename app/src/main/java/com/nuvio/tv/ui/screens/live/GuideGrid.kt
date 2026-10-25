@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalTvMaterial3Api::class)
+@file:OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package com.nuvio.tv.ui.screens.live
 
@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -104,6 +106,15 @@ internal fun GuideGrid(
     var focused by remember { mutableStateOf<Pair<IptvChannel, GuideCell>?>(null) }
     // After the window moves, focus goes back to this channel at this time.
     var target by remember { mutableStateOf<Pair<String, Long>?>(null) }
+    // When the guide first appears, land focus on the programme airing now, so the cursor never
+    // just disappears onto the header.
+    val firstCellFocus = remember { FocusRequester() }
+    LaunchedEffect(channels.firstOrNull()?.id) {
+        if (channels.isNotEmpty()) {
+            withFrameNanos { }
+            runCatching { firstCellFocus.requestFocus() }
+        }
+    }
 
     Column(modifier) {
         // Read inside GuideInfo, so moving between programmes redraws only the info box, not the grid.
@@ -129,7 +140,7 @@ internal fun GuideGrid(
                 }
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = TICKER_CLEARANCE),
-                    modifier = Modifier.drawBehind {
+                    modifier = Modifier.focusRestorer { firstCellFocus }.drawBehind {
                         // "Now" line down the grid, like a TV guide. Only when the current time is
                         // inside the visible window (it leaves the window once you pan into the future).
                         if (nowMs in windowStart until windowEnd) {
@@ -143,7 +154,7 @@ internal fun GuideGrid(
                         }
                     }
                 ) {
-                    items(channels, key = { it.id }) { channel ->
+                    itemsIndexed(channels, key = { _, it -> it.id }) { index, channel ->
                         Row(Modifier.fillMaxWidth().height(56.dp)) {
                             Text(
                                 text = listOfNotNull(channel.number?.toString(), channel.name).joinToString("  "),
@@ -156,10 +167,16 @@ internal fun GuideGrid(
                             Box(Modifier.width(gridWidth).fillMaxHeight()) {
                                 val programmes = guide[channel.id]
                                 val cells = remember(programmes, windowStart) { guideCells(programmes, windowStart, windowEnd) }
+                                // The cell to land initial focus on: the first channel's "now" programme
+                                // (or its first cell if nothing is airing).
+                                val initialCell = if (index == 0) {
+                                    cells.firstOrNull { it.programme != null && it.startMs <= nowMs && nowMs < it.endMs } ?: cells.firstOrNull()
+                                } else null
                                 for (cell in cells) key(cell.startMs) {
                                     // Keyed by start time so a window pan or guide refresh keeps each
                                     // cell's FocusRequester and restore effect tied to the same cell.
                                     val requester = remember { FocusRequester() }
+                                    val cellFocus = if (cell === initialCell) Modifier.focusRequester(firstCellFocus) else Modifier
                                     val isTarget = target?.let { (id, at) -> id == channel.id && at >= cell.startMs && at < cell.endMs } == true
                                     LaunchedEffect(isTarget) {
                                         if (isTarget) {
@@ -176,6 +193,7 @@ internal fun GuideGrid(
                                             .width(dpPerMs * (cell.endMs - cell.startMs).toFloat())
                                             .fillMaxHeight()
                                             .padding(2.dp)
+                                            .then(cellFocus)
                                             .focusRequester(requester)
                                             .onFocusChanged { if (it.isFocused) focused = channel to cell }
                                             .onPreviewKeyEvent { event ->

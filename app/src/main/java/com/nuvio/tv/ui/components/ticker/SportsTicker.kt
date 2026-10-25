@@ -7,9 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -173,6 +175,16 @@ fun SportsTickerMarquee(games: List<TickerGame>, modifier: Modifier = Modifier) 
                 Text("  \u25C6  ", color = TickerColors.edge, fontSize = 11.sp, maxLines = 1)
             }
         }
+        // Soft fades at both ends so items appear and leave smoothly, like a broadcast ticker.
+        val fade = Color(0xD9000000)
+        Box(
+            Modifier.fillMaxHeight().width(36.dp).align(Alignment.CenterStart)
+                .background(Brush.horizontalGradient(listOf(fade, Color.Transparent)))
+        )
+        Box(
+            Modifier.fillMaxHeight().width(36.dp).align(Alignment.CenterEnd)
+                .background(Brush.horizontalGradient(listOf(Color.Transparent, fade)))
+        )
     }
 }
 

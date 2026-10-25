@@ -313,7 +313,7 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(stringResource(R.string.multiview_layout), color = Color(0xFF94A3B8))
+        Text(stringResource(R.string.multiview_layout), color = NuvioTheme.colors.TextSecondary)
         DecoderBudget.TILE_OPTIONS.forEach { count ->
             Button(
                 onClick = { onSelect(count) },
@@ -326,7 +326,7 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
         Text(
             text = state.reducedTo?.let { stringResource(R.string.multiview_reduced, it) }
                 ?: stringResource(R.string.multiview_device_limit, state.maxTiles),
-            color = if (state.reducedTo != null) Color(0xFFFCD34D) else Color(0xFF94A3B8),
+            color = if (state.reducedTo != null) NuvioTheme.colors.Warning else NuvioTheme.colors.TextSecondary,
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -354,17 +354,17 @@ private fun Tile(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF05070D),
-            focusedContainerColor = Color(0xFF05070D)
+            containerColor = NuvioTheme.colors.Background,
+            focusedContainerColor = NuvioTheme.colors.Background
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            border = Border(BorderStroke(1.dp, NuvioTheme.colors.Border)),
             focusedBorder = Border(BorderStroke(3.dp, NuvioTheme.colors.FocusRing))
         )
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (channel == null) {
-                Text(stringResource(R.string.multiview_empty_tile), color = Color(0xFF94A3B8))
+                Text(stringResource(R.string.multiview_empty_tile), color = NuvioTheme.colors.TextSecondary)
             } else {
                 if (active) TilePlayer(channel, settings, findBackup, streamClient, events) { status = it }
                 Text(
@@ -383,7 +383,7 @@ private fun Tile(
                     Text(
                         text = if (problem.gaveUp) stringResource(R.string.multiview_tile_offline)
                         else stringResource(R.string.multiview_tile_recovering, problem.code),
-                        color = Color(0xFFFCD34D),
+                        color = NuvioTheme.colors.Warning,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
