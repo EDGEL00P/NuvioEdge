@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -102,7 +103,8 @@ internal fun GuideGrid(
     var target by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
     Column(modifier) {
-        GuideInfo(focused, timeFormat)
+        // Read inside GuideInfo, so moving between programmes redraws only the info box, not the grid.
+        GuideInfo({ focused }, timeFormat)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val nameWidth = 220.dp
             val gridWidth = maxWidth - nameWidth
@@ -122,7 +124,7 @@ internal fun GuideGrid(
                         }
                     }
                 }
-                LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+                LazyColumn(contentPadding = PaddingValues(bottom = TICKER_CLEARANCE)) {
                     items(channels, key = { it.id }) { channel ->
                         Row(Modifier.fillMaxWidth().height(56.dp)) {
                             Text(
@@ -136,7 +138,9 @@ internal fun GuideGrid(
                             Box(Modifier.width(gridWidth).fillMaxHeight()) {
                                 val programmes = guide[channel.id]
                                 val cells = remember(programmes, windowStart) { guideCells(programmes, windowStart, windowEnd) }
-                                for (cell in cells) {
+                                for (cell in cells) key(cell.startMs) {
+                                    // Keyed by start time so a window pan or guide refresh keeps each
+                                    // cell's FocusRequester and restore effect tied to the same cell.
                                     val requester = remember { FocusRequester() }
                                     val isTarget = target?.let { (id, at) -> id == channel.id && at >= cell.startMs && at < cell.endMs } == true
                                     LaunchedEffect(isTarget) {
@@ -212,7 +216,7 @@ private fun GuideCellView(cell: GuideCell, airing: Boolean, onClick: () -> Unit,
 
 /** Details of the highlighted programme, above the grid. Fixed height so the grid doesn't jump. */
 @Composable
-private fun GuideInfo(focused: Pair<IptvChannel, GuideCell>?, timeFormat: (Long) -> String) {
+private fun GuideInfo(focusedCell: () -> Pair<IptvChannel, GuideCell>?, timeFormat: (Long) -> String) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -220,7 +224,7 @@ private fun GuideInfo(focused: Pair<IptvChannel, GuideCell>?, timeFormat: (Long)
             .background(NuvioTheme.colors.BackgroundCard, RoundedCornerShape(8.dp))
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        val (channel, cell) = focused ?: return@Column
+        val (channel, cell) = focusedCell() ?: return@Column
         val programme = cell.programme
         Text(
             text = programme?.title?.ifBlank { null } ?: stringResource(R.string.live_guide_no_info),

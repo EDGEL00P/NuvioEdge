@@ -6,22 +6,25 @@ It is not affiliated with or endorsed by the Nuvio or VesperTV projects.
 
 ## Live TV
 
-Live TV has its own sidebar tab.
+Live TV and Sports have their own sidebar tabs, and **Settings → Live TV & Sports** holds sources, languages, the ticker switches, a refresh and a cache clear.
 
-- **Sources:** M3U playlists and Xtream Codes logins, added from **Live TV → Sources**. Each source is checked before it is saved; Cancel or Back stops the check.
+- **Sources:** M3U playlists and Xtream Codes logins, added from **Live TV → Sources**. Each source is checked before it is saved; Cancel or Back stops the check. Select a source to change its languages, turn it off or remove it.
+- **Languages:** each source can keep only the languages you pick. Providers rarely label languages, so NuvioEdge reads the tags in group and channel names (`UK |`, `AR:`, `[FR]`, `ARABIC`, `Deutschland`) and M3U `tvg-language` / `tvg-country`. Channels with no recognisable tag are kept. It is a best guess from names, so an odd group name can be misread.
 - **Channels:** grouped by the playlist's groups, plus "All channels" and "Favourites". Hold Select on a channel to add it to Favourites.
 - **Guide:** XMLTV from the playlist's `url-tvg`, Xtream's `xmltv.php`, or a URL you enter (plain or gzip). The channel list shows now and next; **Guide** switches to a timeline of three hours at a time. Channels match on `tvg-id`, or on their name.
+- **Playback:** live channels start after 1.5 seconds of video and, after a stall, wait for 5 seconds so the stream gets a cushion. Changing channel keeps the same player, so the decoders aren't rebuilt. Live channels skip the display-mode (frame rate) probe, which would open a second connection and blank the screen on every change.
 - **Changing channel:** while watching, Up/Down, CH+/CH−, Page Up/Down or Next/Previous change channel inside the running player. Typing a number jumps to that channel (the playlist's numbers, or the channel's position when it has none). Last Channel flips back.
 - **Recovery:** when a stream fails or stalls for 15 seconds, the player switches to another copy of the same channel if there is one, otherwise reconnects, at most 3 times in 5 minutes.
-- **Multiview:** 1, 2, 4 or 6 channels at once. Only the highlighted tile plays sound. The maximum is the lowest of: the TV's memory (2 tiles under 1.5 GB or on low-RAM devices, 4 under 2.5 GB, otherwise 6), what its video decoders declare, and your Xtream account's connection limit. If the TV runs out of decoders or keeps dropping frames, the layout steps down. Tiles stop when you leave the app.
+- **Multiview:** 1, 2, 4 or 6 channels at once, any of them selectable. Only the highlighted tile plays sound. It starts with the layout suggested for the TV (2 tiles under 1.5 GB or on low-RAM devices, 4 under 2.5 GB, otherwise 6, and no more than its video decoders declare). Xtream connection limits aren't enforced, since many providers allow more than they report. If the TV runs out of decoders or keeps dropping frames, the layout steps down. Tiles stop when you leave the app.
 - **Search:** channel names and programme titles that haven't finished.
 - **HTTP headers:** a playlist's `#EXTVLCOPT` User-Agent, Referrer and Origin are sent with the stream.
 - **Limits:** up to 250,000 channels per source (50,000 on devices with a small app memory limit). Films and series in Xtream `m3u_plus` playlists are skipped. RTMP streams aren't supported by the bundled player.
 
 ## Sports
 
-- **Ticker:** a strip along the bottom of every screen flips through live, upcoming and recent games across 44 leagues: American football, basketball, baseball, hockey, soccer (EPL, LaLiga, Serie A, Bundesliga, Ligue 1, UCL, UEL, MLS, A-League, World Cup), AFL, NRL, rugby union, tennis, golf, F1, IndyCar, NASCAR, UFC, PFL, lacrosse and college volleyball. Start times are shown in the TV's time zone. Odds (line, over/under, moneyline) appear where the feed includes them.
-- **Scores:** **Live TV → Scores** lists today's games. For team sports it shows the box score, standings, injuries and headlines, and **On your channels** lists channels in your guide that are showing the game. The ticker's on/off switch is there too.
+- **Sports tab:** today's games across every league, refreshed every minute, with the selected game's detail (below).
+- **Ticker:** a slim strip that scrolls along the bottom of the Live TV and Sports tabs, and over full-screen live channels while the player controls are hidden (switch that off in Settings). It covers live, upcoming and recent games across 44 leagues: American football, basketball, baseball, hockey, soccer (EPL, LaLiga, Serie A, Bundesliga, Ligue 1, UCL, UEL, MLS, A-League, World Cup), AFL, NRL, rugby union, tennis, golf, F1, IndyCar, NASCAR, UFC, PFL, lacrosse and college volleyball. Start times are shown in the TV's time zone. Odds (line, over/under, moneyline) appear where the feed includes them.
+- **Scores:** the Sports tab and **Live TV → Scores** list today's games. For team sports it shows the box score, standings, injuries and headlines, and **On your channels** lists channels in your guide that are showing the game. The ticker's on/off switch is there too.
 - **Data:** ESPN's public scoreboard and summary feeds. They need no key but are unofficial and can change without notice. Each league is refreshed every minute while it has a live game, every 5 minutes before a start, otherwise every 30 minutes. Cricket and boxing aren't available from these feeds.
 
 ## Security and privacy

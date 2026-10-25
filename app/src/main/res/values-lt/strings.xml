@@ -550,7 +550,7 @@
     <string name="trakt_stat_watched_hours">Žiūrėta valandų</string>
     <string name="trakt_disconnect">Atsijungti</string>
     <string name="trakt_disconnect_title">Atsijungti nuo „Trakt“?</string>
-    <string name="trakt_disconnect_subtitle">Tai atsies jūsų „Trakt“ paskyrą nuo „Nuvio“.</string>
+    <string name="trakt_disconnect_subtitle">Tai atsies jūsų „Trakt“ paskyrą nuo „NuvioEdge“.</string>
     <string name="trakt_login">Prisijungti</string>
     <string name="trakt_retry">Bandyti dar kartą</string>
     <string name="trakt_back">Atgal</string>
@@ -922,7 +922,7 @@ Klaida: Bandomoji simuliuojama klaida — tai nėra tikras gedimas. Šaltinis gr
     <string name="catalog_see_all_empty_subtitle">Šiame kataloge turinio nerasta</string>
 
     <!-- LayoutSelectionScreen -->
-    <string name="layout_selection_welcome">Sveiki atvykę į Nuvio</string>
+    <string name="layout_selection_welcome">Sveiki atvykę į NuvioEdge</string>
     <string name="layout_selection_subtitle">Pasirinkite, kaip norite matyti pradinį ekraną</string>
     <string name="layout_selection_continue">Tęsti</string>
 

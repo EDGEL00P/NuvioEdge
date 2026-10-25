@@ -2,34 +2,18 @@
 
 package com.nuvio.tv.ui.components.ticker
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +21,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -50,6 +33,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.data.sports.GameState
 import com.nuvio.tv.data.sports.SportsTickerRepository
 import com.nuvio.tv.data.sports.TickerGame
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -105,6 +89,17 @@ class SportsTickerViewModel @Inject constructor(
         viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.setEnabled(!enabled.value) }
     }
 
+    val overLiveChannels: StateFlow<Boolean> = repository.overLiveChannels
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setEnabled(value: Boolean) {
+        viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.setEnabled(value) }
+    }
+
+    fun setOverLiveChannels(value: Boolean) {
+        viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.setOverLiveChannels(value) }
+    }
+
     private companion object {
         const val REFRESH_MS = 60_000L
     }
@@ -112,201 +107,139 @@ class SportsTickerViewModel @Inject constructor(
 
 /** Sports palette for the ticker; it sits over video, so it doesn't follow the app theme. */
 private object TickerColors {
-    val bar = Brush.horizontalGradient(listOf(Color(0xF20A0F1C), Color(0xF2121A2E), Color(0xF20A0F1C)))
+    val bar = Brush.verticalGradient(listOf(Color(0xB3000000), Color(0xD9000000)))
+    val edge = Color(0xFFFACC15)
     val leagueTag = Color(0xFF1D4ED8)
-    val oddsPanel = Color(0xFF16213A)
     val live = Color(0xFFE11D48)
     val text = Color(0xFFF8FAFC)
     val muted = Color(0xFF94A3B8)
     val odds = Color(0xFFFACC15)
 }
 
+/** Height of the ticker strip; screens that show it keep this much room free at the bottom. */
+val SportsTickerHeight = 34.dp
+
 /**
- * Score and odds strip along the bottom of every screen. It flips through games one at a time, like broadcast
- * score tickers, and never takes focus, so it can't interfere with the remote.
+ * A slim scrolling score and odds strip, like a sportsbook ticker: every game in one line moving
+ * right to left. It never takes focus, so it can't interfere with the remote. Shown by the Live
+ * TV and Sports screens, and over live channels while the player controls are hidden.
  */
 @Composable
-fun SportsTickerOverlay(viewModel: SportsTickerViewModel = hiltViewModel()) {
+fun SportsTickerStrip(modifier: Modifier = Modifier, viewModel: SportsTickerViewModel = hiltViewModel()) {
     val enabled by viewModel.enabled.collectAsStateWithLifecycle()
     val games by viewModel.games.collectAsStateWithLifecycle()
     if (!enabled || games.isEmpty()) return
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        SportsTickerBar(
-            games = games,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = 48.dp, end = 48.dp, bottom = 27.dp) // TV safe area
-        )
-    }
+    SportsTickerMarquee(games, modifier)
 }
 
 @Composable
-fun SportsTickerBar(games: List<TickerGame>, modifier: Modifier = Modifier) {
-    var index by remember { mutableIntStateOf(0) }
-    LaunchedEffect(games.size) {
-        if (index >= games.size) index = 0
-        while (games.size > 1) {
-            delay(FLIP_MS)
-            index = (index + 1) % games.size
-        }
-    }
-    val game = games.getOrNull(index) ?: return
-
-    Row(
+fun SportsTickerMarquee(games: List<TickerGame>, modifier: Modifier = Modifier) {
+    val live = stringResource(R.string.ticker_live)
+    val lineLabel = stringResource(R.string.ticker_line)
+    val totalLabel = stringResource(R.string.ticker_total)
+    val moneylineLabel = stringResource(R.string.ticker_moneyline)
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .height(SportsTickerHeight)
             .background(TickerColors.bar),
-        verticalAlignment = Alignment.CenterVertically
+        contentAlignment = Alignment.CenterStart
     ) {
-        AnimatedContent(
-            targetState = game,
-            transitionSpec = {
-                (slideInVertically(tween(350)) { it } + fadeIn(tween(350))) togetherWith
-                    (slideOutVertically(tween(350)) { -it } + fadeOut(tween(250)))
-            },
-            contentKey = { it.league + it.id },
-            label = "tickerFlip",
-            modifier = Modifier.weight(1f).fillMaxHeight()
-        ) { shown ->
-            GameCard(shown)
-        }
-        Text(
-            text = "${index + 1}/${games.size}",
-            color = TickerColors.muted,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 12.dp)
-        )
-    }
-}
-
-@Composable
-private fun GameCard(game: TickerGame) {
-    Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        Box(
+        Box(Modifier.fillMaxWidth().height(1.dp).align(Alignment.TopCenter).background(TickerColors.edge.copy(alpha = 0.6f)))
+        Row(
             modifier = Modifier
-                .fillMaxHeight()
-                .width(72.dp)
-                .background(TickerColors.leagueTag),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .basicMarquee(
+                    iterations = Int.MAX_VALUE,
+                    repeatDelayMillis = 0,
+                    initialDelayMillis = 0,
+                    spacing = MarqueeSpacing(48.dp),
+                    velocity = 56.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                game.league,
-                color = TickerColors.text,
-                fontWeight = FontWeight.Black,
-                fontSize = if (game.league.length > 4) 13.sp else 15.sp,
-                maxLines = 1
-            )
-        }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-            when (game.kind) {
-                TickerKind.LEADERBOARD -> Leaderboard(game)
-                TickerKind.TEAMS, TickerKind.HEAD_TO_HEAD -> Matchup(game)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (game.state == GameState.LIVE) {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(TickerColors.live))
-                    Text(
-                        stringResource(R.string.ticker_live),
-                        color = TickerColors.live,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(start = 5.dp, end = 8.dp)
-                    )
+            games.forEach { game ->
+                val line = remember(game, live, lineLabel, totalLabel, moneylineLabel) {
+                    tickerLine(game, live, lineLabel, totalLabel, moneylineLabel)
                 }
+                LeagueTag(game.league)
                 Text(
-                    // An event with no running order yet shows its name on the top line instead.
-                    text = listOfNotNull(game.event.takeUnless { game.kind == TickerKind.LEADERBOARD && game.leaders.isEmpty() }, game.status.ifBlank { null })
-                        .joinToString(" · "),
-                    color = TickerColors.muted,
-                    fontSize = 13.sp,
+                    text = line,
+                    fontSize = 15.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = false,
+                    modifier = Modifier.padding(start = 8.dp)
                 )
-            }
-        }
-        val odds = game.odds
-        if (odds != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .background(TickerColors.oddsPanel)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    odds.line?.let { OddsItem(stringResource(R.string.ticker_line), it) }
-                    odds.total?.let { OddsItem(stringResource(R.string.ticker_total), it) }
-                    if (odds.moneylineAway != null && odds.moneylineHome != null) {
-                        OddsItem(
-                            stringResource(R.string.ticker_moneyline),
-                            "${game.away.abbreviation} ${odds.moneylineAway} · ${game.home.abbreviation} ${odds.moneylineHome}"
-                        )
-                    }
-                }
-                odds.provider?.let {
-                    Text(stringResource(R.string.ticker_odds_by, it), color = TickerColors.muted, fontSize = 12.sp)
-                }
+                Text("  \u25C6  ", color = TickerColors.edge, fontSize = 11.sp, maxLines = 1)
             }
         }
     }
 }
 
-/** "AWAY 21  @  HOME 17" for team games, "J. Sinner 6 6  vs  C. Alcaraz 4 3" for tennis and fights. */
 @Composable
-private fun Matchup(game: TickerGame) {
-    val showScores = game.state != GameState.PRE
-    val final = game.state == GameState.FINAL
-    val separator = if (game.kind == TickerKind.TEAMS) "  @  " else "  vs  "
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        TeamScore(game.away, showScores, highlight = final && game.away.winner)
-        Text(separator, color = TickerColors.muted, fontSize = 14.sp)
-        TeamScore(game.home, showScores, highlight = final && game.home.winner)
+private fun LeagueTag(league: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(TickerColors.leagueTag)
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+    ) {
+        Text(league, color = TickerColors.text, fontWeight = FontWeight.Black, fontSize = 12.sp, maxLines = 1)
     }
 }
 
-/** "1 S. Scheffler -16   T2 R. McIlroy -14   T2 X. Schauffele -14" for golf and racing. */
-@Composable
-private fun Leaderboard(game: TickerGame) {
-    val line = buildAnnotatedString {
-        game.leaders.forEachIndexed { i, leader ->
-            if (i > 0) append("    ")
-            withStyle(SpanStyle(color = TickerColors.muted, fontWeight = FontWeight.Bold)) { append(leader.position + " ") }
-            withStyle(SpanStyle(color = TickerColors.text, fontWeight = FontWeight.Bold)) { append(leader.name) }
-            leader.score?.let { withStyle(SpanStyle(color = TickerColors.odds, fontWeight = FontWeight.Black)) { append(" $it") } }
+/**
+ * One game as a single styled line: "PIT 21 @ CLE 17  LIVE Q3 8:42  LINE PIT -3  O/U 45.5", or
+ * "1 S. Scheffler -16  T2 R. McIlroy -14" for golf and racing.
+ */
+internal fun tickerLine(
+    game: TickerGame,
+    liveLabel: String,
+    lineLabel: String,
+    totalLabel: String,
+    moneylineLabel: String
+): AnnotatedString = buildAnnotatedString {
+    val text = SpanStyle(color = TickerColors.text, fontWeight = FontWeight.Bold)
+    val muted = SpanStyle(color = TickerColors.muted)
+    val gold = SpanStyle(color = TickerColors.odds, fontWeight = FontWeight.Black)
+    when (game.kind) {
+        TickerKind.LEADERBOARD -> {
+            if (game.leaders.isEmpty()) {
+                withStyle(text) { append(game.event.orEmpty()) }
+            } else {
+                game.event?.let { withStyle(muted) { append("$it  ") } }
+                game.leaders.forEachIndexed { i, leader ->
+                    if (i > 0) append("   ")
+                    withStyle(muted) { append(leader.position + " ") }
+                    withStyle(text) { append(leader.name) }
+                    leader.score?.let { withStyle(gold) { append(" $it") } }
+                }
+            }
+        }
+        TickerKind.TEAMS, TickerKind.HEAD_TO_HEAD -> {
+            val showScores = game.state != GameState.PRE
+            val final = game.state == GameState.FINAL
+            fun side(team: TeamLine) {
+                withStyle(if (final && team.winner) gold else text) { append(team.abbreviation) }
+                team.score?.takeIf { showScores }?.let { withStyle(text) { append(" $it") } }
+            }
+            side(game.away)
+            withStyle(muted) { append(if (game.kind == TickerKind.TEAMS) "  @  " else "  vs  ") }
+            side(game.home)
         }
     }
-    if (line.isEmpty()) {
-        Text(game.event.orEmpty(), color = TickerColors.text, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        return
+    if (game.state == GameState.LIVE) {
+        append("  ")
+        withStyle(SpanStyle(color = TickerColors.live, fontWeight = FontWeight.Black)) { append("\u25CF $liveLabel") }
     }
-    Text(line, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-}
-
-@Composable
-private fun TeamScore(side: TeamLine, showScore: Boolean, highlight: Boolean) {
-    Text(
-        side.abbreviation,
-        color = if (highlight) TickerColors.odds else TickerColors.text,
-        fontWeight = FontWeight.Bold,
-        fontSize = 18.sp,
-        maxLines = 1
-    )
-    val score = side.score.takeIf { showScore }
-    if (score != null) {
-        Text(" $score", color = TickerColors.text, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1)
+    game.status.ifBlank { null }?.let { withStyle(muted) { append("  $it") } }
+    game.odds?.let { odds ->
+        odds.line?.let { append("   "); withStyle(muted) { append("$lineLabel ") }; withStyle(gold) { append(it) } }
+        odds.total?.let { append("   "); withStyle(muted) { append("$totalLabel ") }; withStyle(gold) { append(it) } }
+        if (odds.moneylineAway != null && odds.moneylineHome != null) {
+            append("   ")
+            withStyle(muted) { append("$moneylineLabel ") }
+            withStyle(gold) { append("${game.away.abbreviation} ${odds.moneylineAway} · ${game.home.abbreviation} ${odds.moneylineHome}") }
+        }
     }
 }
-
-@Composable
-private fun OddsItem(label: String, value: String) {
-    Column {
-        Text(label, color = TickerColors.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Text(value, color = TickerColors.odds, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-    }
-}
-
-private const val FLIP_MS = 6_000L

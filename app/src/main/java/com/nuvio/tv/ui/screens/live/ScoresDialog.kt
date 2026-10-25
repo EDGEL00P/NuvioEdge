@@ -68,56 +68,16 @@ internal fun ScoresDialog(
     onPlay: (IptvChannel) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var games by remember { mutableStateOf<List<TickerGame>?>(null) }
-    var selected by remember { mutableStateOf<TickerGame?>(null) }
-    LaunchedEffect(Unit) {
-        val loaded = runCatching { loadGames() }.getOrDefault(emptyList())
-        games = loaded
-        if (selected == null) selected = loaded.firstOrNull()
-    }
-
     NuvioDialog(onDismiss = onDismiss, title = stringResource(R.string.scores_title), width = 1000.dp) {
-        Row(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
-            val list = games
-            when {
-                list == null -> Box(Modifier.width(360.dp)) { LoadingIndicator(Modifier.size(32.dp)) }
-                list.isEmpty() -> Text(
-                    stringResource(R.string.scores_empty),
-                    color = NuvioTheme.colors.TextSecondary,
-                    modifier = Modifier.width(360.dp)
-                )
-                else -> LazyColumn(
-                    modifier = Modifier.width(360.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(list, key = { it.league + ":" + it.id }) { game ->
-                        ListItem(
-                            selected = game == selected,
-                            onClick = { selected = game },
-                            colors = ListItemDefaults.colors(
-                                containerColor = NuvioTheme.colors.BackgroundCard,
-                                selectedContainerColor = NuvioTheme.colors.BackgroundElevated,
-                                focusedContainerColor = NuvioTheme.colors.FocusBackground,
-                                focusedContentColor = NuvioTheme.colors.FocusContent
-                            ),
-                            headlineContent = { Text(matchupText(game), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = {
-                                Text(
-                                    listOf(game.league, game.status).filter { it.isNotBlank() }.joinToString(" · "),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.width(16.dp))
-            selected?.let { game ->
-                GamePanel(game, loadDetail, channels, guide, nowMs, onPlay, Modifier.weight(1f))
-            }
-        }
+        ScoresBrowser(
+            loadGames = loadGames,
+            loadDetail = loadDetail,
+            channels = channels,
+            guide = guide,
+            nowMs = nowMs,
+            onPlay = onPlay,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
+        )
         SettingsDialogActionRow {
             SettingsDialogActionButton(
                 text = stringResource(if (tickerOn) R.string.ticker_on else R.string.ticker_off),
@@ -127,6 +87,82 @@ internal fun ScoresDialog(
         }
     }
 }
+
+/**
+ * Game list on the left, the selected game on the right. Used by the Scores dialog and the
+ * Sports screen; with [refreshMs] the games reload on that interval while shown.
+ */
+@Composable
+internal fun ScoresBrowser(
+    loadGames: suspend () -> List<TickerGame>,
+    loadDetail: suspend (TickerGame) -> GameDetail?,
+    channels: List<IptvChannel>,
+    guide: Map<String, List<EpgProgramme>>,
+    nowMs: Long,
+    onPlay: (IptvChannel) -> Unit,
+    modifier: Modifier = Modifier,
+    refreshMs: Long? = null,
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
+) {
+    var games by remember { mutableStateOf<List<TickerGame>?>(null) }
+    var selectedKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val loaded = runCatching { loadGames() }.getOrNull()
+            if (loaded != null || games == null) games = loaded ?: emptyList()
+            if (selectedKey == null || games.orEmpty().none { gameKey(it) == selectedKey }) {
+                selectedKey = games.orEmpty().firstOrNull()?.let(::gameKey)
+            }
+            kotlinx.coroutines.delay(refreshMs ?: break)
+        }
+    }
+    val selected = games?.firstOrNull { gameKey(it) == selectedKey }
+
+    Row(modifier = modifier) {
+        val list = games
+        when {
+            list == null -> Box(Modifier.width(360.dp)) { LoadingIndicator(Modifier.size(32.dp)) }
+            list.isEmpty() -> Text(
+                stringResource(R.string.scores_empty),
+                color = NuvioTheme.colors.TextSecondary,
+                modifier = Modifier.width(360.dp)
+            )
+            else -> LazyColumn(
+                modifier = Modifier.width(360.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomPadding)
+            ) {
+                items(list, key = ::gameKey) { game ->
+                    ListItem(
+                        selected = gameKey(game) == selectedKey,
+                        onClick = { selectedKey = gameKey(game) },
+                        colors = ListItemDefaults.colors(
+                            containerColor = NuvioTheme.colors.BackgroundCard,
+                            selectedContainerColor = NuvioTheme.colors.BackgroundElevated,
+                            focusedContainerColor = NuvioTheme.colors.FocusBackground,
+                            focusedContentColor = NuvioTheme.colors.FocusContent
+                        ),
+                        headlineContent = { Text(matchupText(game), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Text(
+                                listOf(game.league, game.status).filter { it.isNotBlank() }.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        selected?.let { game ->
+            GamePanel(game, loadDetail, channels, guide, nowMs, onPlay, Modifier.weight(1f))
+        }
+    }
+}
+
+private fun gameKey(game: TickerGame): String = game.league + ":" + game.id
 
 @Composable
 private fun GamePanel(
@@ -138,11 +174,15 @@ private fun GamePanel(
     onPlay: (IptvChannel) -> Unit,
     modifier: Modifier
 ) {
-    var detail by remember(game) { mutableStateOf<GameDetail?>(null) }
-    var detailLoaded by remember(game) { mutableStateOf(false) }
-    var matches by remember(game) { mutableStateOf<List<ChannelMatch>?>(null) }
-    LaunchedEffect(game) {
+    // Keyed by the game, not the scores: a refresh with new scores keeps the loaded detail.
+    val key = gameKey(game)
+    var detail by remember(key) { mutableStateOf<GameDetail?>(null) }
+    var detailLoaded by remember(key) { mutableStateOf(false) }
+    var matches by remember(key) { mutableStateOf<List<ChannelMatch>?>(null) }
+    LaunchedEffect(key, channels, guide) {
         matches = withContext(Dispatchers.Default) { channelsShowing(game, channels, guide, nowMs) }
+    }
+    LaunchedEffect(key) {
         if (game.kind == TickerKind.TEAMS) detail = runCatching { loadDetail(game) }.getOrNull()
         detailLoaded = true
     }

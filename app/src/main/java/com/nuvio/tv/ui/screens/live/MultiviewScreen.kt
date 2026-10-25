@@ -105,8 +105,6 @@ data class MultiviewState(
     /** Set when the TV couldn't keep up and the layout was made smaller. */
     val reducedTo: Int? = null,
     val lowMemory: Boolean = false,
-    /** Streams the IPTV account allows at once, when it is lower than what the TV can do. */
-    val accountLimit: Int? = null
 )
 
 /** The channel you were just watching first, then favourites; empty tiles after that. */
@@ -148,10 +146,9 @@ class MultiviewViewModel @Inject constructor(
                 val deviceMax = DecoderBudget.tilesFor(profile)
                 val sources = repository.sources.first()
                 val channels = repository.loadChannels(sources, force = false).channels
-                // Most Xtream accounts allow 1-2 connections; more tiles would just be refused.
-                val accountLimit = repository.connectionLimit(sources.filter { it.enabled }.map { it.id })
-                    ?.takeIf { it < deviceMax }
-                val maxTiles = accountLimit?.coerceAtLeast(1) ?: deviceMax
+                // The account's reported connection limit is not enforced: many providers allow
+                // more than they report. A tile the server refuses shows its own error.
+                val maxTiles = deviceMax
                 val favorites = repository.favorites.first()
                 _state.value = MultiviewState(
                     loading = false,
@@ -159,8 +156,7 @@ class MultiviewViewModel @Inject constructor(
                     tiles = initialTiles(channels, favorites, LiveZapSession.currentId()),
                     maxTiles = maxTiles,
                     tileCount = DecoderBudget.bestOption(minOf(4, maxTiles)),
-                    lowMemory = profile.lowRamDevice || profile.smallHeap,
-                    accountLimit = accountLimit
+                    lowMemory = profile.lowRamDevice || profile.smallHeap
                 )
                 backups = withContext(Dispatchers.Default) { BackupIndex(channels) }
             } finally {
@@ -174,7 +170,9 @@ class MultiviewViewModel @Inject constructor(
     }
 
     fun setTileCount(count: Int) {
-        _state.update { s -> s.copy(tileCount = DecoderBudget.bestOption(minOf(count, s.maxTiles)), reducedTo = null) }
+        // Any layout can be picked; the TV's estimate only sets the starting layout. If the TV
+        // really can't keep up, onTvOverloaded steps down and says so.
+        _state.update { s -> s.copy(tileCount = DecoderBudget.bestOption(count), reducedTo = null) }
     }
 
     private var lastReductionMs = 0L
@@ -228,6 +226,16 @@ fun MultiviewScreen(
     }
 
     LaunchedEffect(state.loading) { if (!state.loading) runCatching { firstTile.requestFocus() } }
+
+    // A downgrade (onTvOverloaded) removes the focused tile from the layout, which would strand
+    // focus and leave every remaining tile muted (audio follows [focused]). Pull focus back to the
+    // first tile when that happens.
+    LaunchedEffect(state.tileCount) {
+        if (focused >= state.tileCount) {
+            focused = 0
+            runCatching { firstTile.requestFocus() }
+        }
+    }
 
     // TV safe area: 48dp sides, 27dp top and bottom (Android TV layout guidelines).
     Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 48.dp, vertical = 27.dp)) {
@@ -309,7 +317,6 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
         DecoderBudget.TILE_OPTIONS.forEach { count ->
             Button(
                 onClick = { onSelect(count) },
-                enabled = count <= state.maxTiles,
                 colors = ButtonDefaults.colors(
                     containerColor = if (count == state.tileCount) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
                     focusedContainerColor = NuvioTheme.colors.FocusBackground
@@ -318,7 +325,6 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
         }
         Text(
             text = state.reducedTo?.let { stringResource(R.string.multiview_reduced, it) }
-                ?: state.accountLimit?.let { stringResource(R.string.multiview_account_limit, it) }
                 ?: stringResource(R.string.multiview_device_limit, state.maxTiles),
             color = if (state.reducedTo != null) Color(0xFFFCD34D) else Color(0xFF94A3B8),
             style = MaterialTheme.typography.bodySmall

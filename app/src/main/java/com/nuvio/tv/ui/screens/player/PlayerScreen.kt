@@ -76,6 +76,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -1334,6 +1335,19 @@ fun PlayerScreen(
                 .fillMaxSize()
                 .zIndex(2f)
         )
+
+        // Live TV: the slim score ticker along the bottom, only while the player controls are hidden.
+        if (uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) {
+            val tickerViewModel: com.nuvio.tv.ui.components.ticker.SportsTickerViewModel =
+                androidx.hilt.navigation.compose.hiltViewModel()
+            val tickerOverLive by tickerViewModel.overLiveChannels.collectAsStateWithLifecycle()
+            if (tickerOverLive && !uiState.showControls && uiState.error == null && !uiState.showLoadingOverlay) {
+                com.nuvio.tv.ui.components.ticker.SportsTickerStrip(
+                    modifier = Modifier.align(Alignment.BottomCenter).zIndex(1.5f),
+                    viewModel = tickerViewModel
+                )
+            }
+        }
 
         if (uiState.playbackIssueReportsEnabled &&
             uiState.showLoadingOverlay &&

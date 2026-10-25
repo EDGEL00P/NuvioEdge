@@ -12,8 +12,15 @@ import java.io.Reader
  * Supports `tvg-id`, `tvg-name`, `tvg-logo`, `tvg-chno`, `group-title`, the `#EXTGRP:` fallback,
  * `#EXTVLCOPT:http-user-agent=` / `http-referrer=` and the header's `url-tvg` / `x-tvg-url`.
  */
-/** @param maxChannels stop adding channels after this many (memory limit on small TV boxes). */
-class M3uParser(private val sourceId: String, private val maxChannels: Int = Int.MAX_VALUE) {
+/**
+ * @param maxChannels stop adding channels after this many (memory limit on small TV boxes).
+ * @param filter channels outside the source's chosen languages are skipped and don't count.
+ */
+class M3uParser(
+    private val sourceId: String,
+    private val maxChannels: Int = Int.MAX_VALUE,
+    private val filter: LanguageFilter = LanguageFilter.NONE
+) {
 
     private val channels = ArrayList<IptvChannel>()
     private var headerEpgUrl: String? = null
@@ -69,12 +76,14 @@ class M3uParser(private val sourceId: String, private val maxChannels: Int = Int
 
     private fun finishEntry(url: String) {
         val name = pendingName
+        val group = attrs["group-title"]?.takeIf { it.isNotBlank() } ?: UNCATEGORIZED
         // Only network streams: a playlist must not point the player at files on the device.
-        if (name != null && channels.size >= maxChannels && IptvSafety.isAllowedStream(url)) truncated = true
         // Xtream "m3u_plus" playlists also list films and series; those aren't live channels.
-        if (name != null && IptvSafety.isAllowedStream(url) && !isVodUrl(url) && channels.size < maxChannels) {
+        val wanted = name != null && IptvSafety.isAllowedStream(url) && !isVodUrl(url) &&
+            filter.keep(name, group, attrs["tvg-language"], attrs["tvg-country"])
+        if (wanted && channels.size >= maxChannels) truncated = true
+        if (name != null && wanted && channels.size < maxChannels) {
             counter++
-            val group = attrs["group-title"]?.takeIf { it.isNotBlank() } ?: UNCATEGORIZED
             // Stable across refreshes and reordering (favourites survive), unique for duplicates.
             val base = "${attrs["tvg-id"].orEmpty()}|$name|$group"
             val occurrence = seen.merge(base, 1, Int::plus) ?: 1

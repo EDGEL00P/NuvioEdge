@@ -35,6 +35,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,23 +102,31 @@ fun LiveTvScreen(
             viewModel.setVisible(false)
         }
     }
-    LiveTvContent(
-        state = state,
-        showGuide = showGuide,
-        onRefresh = viewModel::refresh,
-        onToggleGuide = { showGuide = !showGuide },
-        onOpenScores = { showScores = true },
-        onOpenSources = { showSources = true },
-        onOpenMultiview = onOpenMultiview,
-        onOpenSearch = { showSearch = true },
-        onSelectGroup = viewModel::selectGroup,
-        onPlay = { channel ->
-            viewModel.startZapSession(channel)
-            val now = IptvRepository.nowAndNext(state.guide[channel.id], System.currentTimeMillis()).first
-            onPlayChannel(channel, now?.title)
-        },
-        onToggleFavorite = viewModel::toggleFavorite
-    )
+    Box(Modifier.fillMaxSize()) {
+        LiveTvContent(
+            state = state,
+            showGuide = showGuide,
+            onRefresh = viewModel::refresh,
+            onToggleGuide = { showGuide = !showGuide },
+            onOpenScores = { showScores = true },
+            onOpenSources = { showSources = true },
+            onOpenMultiview = onOpenMultiview,
+            onOpenSearch = { showSearch = true },
+            onSelectGroup = viewModel::selectGroup,
+            onFocusGroup = viewModel::focusGroup,
+            onFlushGroup = viewModel::flushGroupFocus,
+            onPlay = { channel ->
+                viewModel.startZapSession(channel)
+                val now = IptvRepository.nowAndNext(state.guide[channel.id], System.currentTimeMillis()).first
+                onPlayChannel(channel, now?.title)
+            },
+            onToggleFavorite = viewModel::toggleFavorite
+        )
+        com.nuvio.tv.ui.components.ticker.SportsTickerStrip(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            viewModel = tickerViewModel
+        )
+    }
 
     if (showSources) {
         LiveSourcesDialog(viewModel = viewModel, onDismiss = { showSources = false })
@@ -160,9 +175,13 @@ internal fun LiveTvContent(
     onOpenMultiview: () -> Unit,
     onOpenSearch: () -> Unit,
     onSelectGroup: (String) -> Unit,
+    onFocusGroup: (String) -> Unit = onSelectGroup,
+    onFlushGroup: () -> Boolean = { false },
     onPlay: (IptvChannel) -> Unit,
     onToggleFavorite: (IptvChannel) -> Unit
 ) {
+    val channelPane = remember { FocusRequester() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -235,7 +254,23 @@ internal fun LiveTvContent(
                 GroupList(
                     state = state,
                     onSelect = onSelectGroup,
-                    modifier = Modifier.width(300.dp).fillMaxHeight()
+                    onFocus = onFocusGroup,
+                    modifier = Modifier
+                        .width(300.dp)
+                        .fillMaxHeight()
+                        .onPreviewKeyEvent { event ->
+                            // A group still settling: switch the list first, then move into it once drawn.
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight && onFlushGroup()) {
+                                scope.launch {
+                                    withFrameNanos { }
+                                    withFrameNanos { }
+                                    runCatching { channelPane.requestFocus() }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
                 )
                 Spacer(Modifier.width(NuvioTheme.spacing.lg))
                 if (showGuide) {
@@ -244,14 +279,14 @@ internal fun LiveTvContent(
                         guide = state.guide,
                         nowMs = state.nowMs,
                         onPlay = onPlay,
-                        modifier = Modifier.weight(1f).fillMaxHeight()
+                        modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(channelPane).focusGroup()
                     )
                 } else {
                     ChannelList(
                         state = state,
                         onPlay = onPlay,
                         onToggleFavorite = onToggleFavorite,
-                        modifier = Modifier.weight(1f).fillMaxHeight()
+                        modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(channelPane)
                     )
                 }
             }
@@ -311,7 +346,8 @@ private fun listColors() = ListItemDefaults.colors(
 )
 
 @Composable
-private fun GroupList(state: LiveTvUiState, onSelect: (String) -> Unit, modifier: Modifier) {
+private fun GroupList(state: LiveTvUiState, onSelect: (String) -> Unit, onFocus: (String) -> Unit, modifier: Modifier) {
+    val colors = listColors()
     val allLabel = stringResource(R.string.live_group_all)
     val favLabel = stringResource(R.string.live_group_favorites)
     LazyColumn(
@@ -329,8 +365,8 @@ private fun GroupList(state: LiveTvUiState, onSelect: (String) -> Unit, modifier
                 selected = group.key == state.selectedGroup,
                 onClick = { onSelect(group.key) },
                 // Moving through the groups updates the channel list, as in most live TV apps.
-                modifier = Modifier.onFocusChanged { if (it.isFocused) onSelect(group.key) },
-                colors = listColors(),
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus(group.key) },
+                colors = colors,
                 headlineContent = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 trailingContent = { Text(group.count.toString(), style = MaterialTheme.typography.labelMedium) }
             )
@@ -350,6 +386,8 @@ private fun ChannelList(
     val currentFocus = remember { FocusRequester() }
     // Read when the screen (re)appears, e.g. after backing out of the player or zapping with CH+/CH-.
     val currentId = remember { LiveZapSession.currentId() }
+    val colors = listColors()
+    val timeFormat = rememberTimeFormatter()
     LaunchedEffect(Unit) {
         val index = channels.indexOfFirst { it.id == currentId }
         if (index >= 0) {
@@ -365,14 +403,17 @@ private fun ChannelList(
         contentPadding = PaddingValues(bottom = TICKER_CLEARANCE)
     ) {
         items(channels, key = { it.id }) { channel ->
-            val (now, next) = IptvRepository.nowAndNext(state.guide[channel.id], state.nowMs)
+            val programmes = state.guide[channel.id]
+            val (now, next) = remember(programmes, state.nowMs) {
+                IptvRepository.nowAndNext(programmes, state.nowMs)
+            }
             val supporting: (@Composable () -> Unit)? = if (now != null) {
-                { ProgrammeLine(now, state.nowMs) }
+                { ProgrammeLine(now, state.nowMs, timeFormat) }
             } else null
             val trailing: (@Composable () -> Unit)? = if (next != null) {
                 {
                     Text(
-                        text = stringResource(R.string.live_next, formatTime(next.startMs), next.title),
+                        text = stringResource(R.string.live_next, timeFormat(next.startMs), next.title),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -385,7 +426,7 @@ private fun ChannelList(
                 onClick = { onPlay(channel) },
                 modifier = if (channel.id == currentId) Modifier.focusRequester(currentFocus) else Modifier,
                 onLongClick = { onToggleFavorite(channel) },
-                colors = listColors(),
+                colors = colors,
                 leadingContent = {
                     Box(
                         modifier = Modifier
@@ -429,7 +470,7 @@ private fun ChannelList(
 }
 
 @Composable
-private fun ProgrammeLine(programme: EpgProgramme, nowMs: Long) {
+private fun ProgrammeLine(programme: EpgProgramme, nowMs: Long, formatTime: (Long) -> String) {
     Column {
         // Title first: it's what matters, and the time range is the part that can be cut off.
         Text(
@@ -459,8 +500,5 @@ private fun ProgrammeLine(programme: EpgProgramme, nowMs: Long) {
     }
 }
 
-@Composable
-private fun formatTime(ms: Long): String = rememberTimeFormatter()(ms)
-
 /** Bottom space so the last rows can scroll above the sports ticker. */
-private val TICKER_CLEARANCE = 96.dp
+internal val TICKER_CLEARANCE = com.nuvio.tv.ui.components.ticker.SportsTickerHeight + 16.dp

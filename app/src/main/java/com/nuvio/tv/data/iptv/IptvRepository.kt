@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import java.io.File
 import java.io.IOException
@@ -76,8 +75,6 @@ class IptvRepository @Inject constructor(
     private class GuideMemo(val wanted: Int, val parsedAtMs: Long, val result: XmltvResult)
     private val guides = ConcurrentHashMap<String, GuideMemo>()
 
-    /** Xtream `max_connections` per source id, when the panel reports one. */
-    private val connectionLimits = ConcurrentHashMap<String, Int>()
     /** Live stream extension per Xtream source ("ts", or "m3u8" for HLS-only accounts). */
     private val liveExtensions = ConcurrentHashMap<String, String>()
 
@@ -92,6 +89,30 @@ class IptvRepository @Inject constructor(
     val sources: Flow<List<IptvSource>> = store.sources
     val favorites: Flow<Set<String>> = store.favorites
 
+    init {
+        // Parsed lists and guides live in memory for speed. When the system runs short, or a
+        // small-memory box puts the app in the background, drop them: the encrypted downloads stay
+        // on disk and are parsed again on the next visit.
+        context.registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && channelCap == LOW_MEMORY_CHANNEL_CAP) {
+                    releaseParsed()
+                }
+            }
+
+            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = Unit
+
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun onLowMemory() = releaseParsed()
+        })
+    }
+
+    private fun releaseParsed() {
+        playlists.clear()
+        playlistLoadedAt.clear()
+        guides.clear()
+    }
+
     suspend fun toggleFavorite(channelId: String) = store.toggleFavorite(channelId)
 
     suspend fun addSource(
@@ -100,7 +121,8 @@ class IptvRepository @Inject constructor(
         url: String,
         username: String,
         password: String,
-        epgUrl: String
+        epgUrl: String,
+        languages: List<String> = emptyList()
     ): IptvSource {
         val cleanUrl = if (type == IptvSourceType.XTREAM) XtreamClient.normalizeServer(url) else url.trim()
         if (!IptvSafety.isWebUrl(cleanUrl)) {
@@ -116,7 +138,8 @@ class IptvRepository @Inject constructor(
             url = cleanUrl,
             username = username.trim(),
             password = password,
-            epgUrl = epgUrl.trim()
+            epgUrl = epgUrl.trim(),
+            languages = languages
         )
         // Validate before saving so a typo never gets stored. Interruptible: Cancel stops the download.
         runInterruptible(Dispatchers.IO) { fetchPlaylist(source, force = true) }
@@ -132,18 +155,38 @@ class IptvRepository @Inject constructor(
         // Its encrypted copies of the playlist and guide are no longer needed.
         if (source != null) {
             withContext(Dispatchers.IO) {
-                listOf("m3u|${source.contentKey}", "xc-cats|${source.contentKey}", "xc-streams|${source.contentKey}")
+                listOf("m3u|${source.contentKey}", "xc-account|${source.contentKey}", "xc-cats|${source.contentKey}", "xc-streams|${source.contentKey}")
                     .forEach(cache::delete)
                 guideUrl?.let { cache.delete("epg|${source.contentKey}|$it") }
             }
         }
         playlists.remove(id)
-        connectionLimits.remove(id)
+        playlistLoadedAt.remove(id)
         liveExtensions.remove(id)
+        source?.let { removed -> guides.keys.removeAll { it.startsWith("epg|${removed.contentKey}|") } }
     }
 
     suspend fun setSourceEnabled(id: String, enabled: Boolean) {
         store.update { list -> list.map { if (it.id == id) it.copy(enabled = enabled) else it } }
+        // A switched-off source's parsed list can hold 250k channels; the encrypted file stays cached.
+        if (!enabled) {
+            playlists.remove(id)
+            playlistLoadedAt.remove(id)
+        }
+    }
+
+    /**
+     * Deletes the downloaded channel lists and guides and forgets the parsed copies; the next
+     * load downloads everything again. Sources, logins and favourites are kept.
+     */
+    suspend fun clearCache() = withContext(Dispatchers.IO) {
+        cache.clear()
+        releaseParsed()
+    }
+
+    /** Languages to keep for a source; the list is re-read from the cached download, not fetched again. */
+    suspend fun setSourceLanguages(id: String, languages: List<String>) {
+        store.update { list -> list.map { if (it.id == id) it.copy(languages = languages.distinct()) else it } }
     }
 
     suspend fun loadChannels(sources: List<IptvSource>, force: Boolean): ChannelLoadResult =
@@ -171,6 +214,10 @@ class IptvRepository @Inject constructor(
         force: Boolean
     ): Map<String, List<EpgProgramme>> = withContext(Dispatchers.IO) {
         val bySource = channels.groupBy { it.sourceId }
+        // Parsed guides of sources removed, switched off or changed (new login or address) are
+        // never asked for again; a big guide is several MB, so drop them.
+        val live = sources.filter { it.enabled }.map { "epg|${it.contentKey}|" }
+        guides.keys.removeAll { key -> live.none(key::startsWith) }
         coroutineScope {
             sources.filter { it.enabled && bySource.containsKey(it.id) }.map { source ->
                 async { runInterruptible { runCatching { guideFor(source, bySource.getValue(source.id), force) }.getOrDefault(emptyMap()) } }
@@ -215,26 +262,33 @@ class IptvRepository @Inject constructor(
     }
 
     private fun rememberAccount(source: IptvSource, account: XtreamClient.Account) {
-        account.maxConnections?.takeIf { it > 0 }?.let { connectionLimits[source.id] = it }
         liveExtensions[source.id] = account.liveExtension
     }
 
     private fun fetchPlaylist(source: IptvSource, force: Boolean): IptvPlaylist {
         val memo = playlists[source.id]
         val memoAge = System.currentTimeMillis() - (playlistLoadedAt[source.id] ?: 0L)
-        if (!force && memo != null && memo.first == source.contentKey && memoAge < PLAYLIST_MAX_AGE_MS) return memo.second
+        if (!force && memo != null && memo.first == source.filterKey && memoAge < PLAYLIST_MAX_AGE_MS) return memo.second
+        val filter = LanguageFilter(source.languages)
         val playlist = when (source.type) {
             IptvSourceType.M3U -> cached(
                 "m3u|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_PLAYLIST_BYTES, force, source.url
-            ) { input -> M3uParser(source.id, channelCap).parse(input.reader()) }
+            ) { input -> M3uParser(source.id, channelCap, filter).parse(input.reader()) }
             IptvSourceType.XTREAM -> {
+                // The account reply is cached like the lists, so opening Live TV doesn't wait on a
+                // login round trip; it is re-checked with the lists (every 6 h, or on Refresh).
+                val account = { refresh: Boolean ->
+                    cached(
+                        "xc-account|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_LOGIN_BYTES, refresh,
+                        XtreamClient.apiUrl(source).toString()
+                    ) { XtreamClient.parseAccount(it.bufferedReader().readText()) }
+                }
                 if (force || cache.ageMs("xc-streams|${source.contentKey}") == null) {
                     // Login check first so a wrong password reads as "Login rejected", not a parse error.
-                    rememberAccount(source, XtreamClient.parseAccount(download(XtreamClient.apiUrl(source).toString())))
+                    rememberAccount(source, account(force))
                 } else if (!liveExtensions.containsKey(source.id)) {
                     // Cached channels: still learn the account's limits, but never fail on it.
-                    runCatching { XtreamClient.parseAccount(download(XtreamClient.apiUrl(source).toString())) }
-                        .getOrNull()?.let { rememberAccount(source, it) }
+                    runCatching { account(false) }.getOrNull()?.let { rememberAccount(source, it) }
                 }
                 val categories = cached(
                     "xc-cats|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_API_BYTES, force,
@@ -243,12 +297,14 @@ class IptvRepository @Inject constructor(
                 val channels = cached(
                     "xc-streams|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_API_BYTES, force,
                     XtreamClient.apiUrl(source, "get_live_streams").toString()
-                ) { XtreamClient.parseLiveStreams(it, source, categories, channelCap, liveExtensions[source.id] ?: "ts") }
+                ) { XtreamClient.parseLiveStreams(it, source, categories, channelCap, liveExtensions[source.id] ?: "ts", filter) }
                 IptvPlaylist(channels, truncated = channels.size >= channelCap)
             }
         }
-        if (playlist.channels.isEmpty()) throw IptvException("No channels found")
-        playlists[source.id] = source.contentKey to playlist
+        if (playlist.channels.isEmpty()) {
+            throw IptvException(if (filter.isActive) "No channels in the chosen languages" else "No channels found")
+        }
+        playlists[source.id] = source.filterKey to playlist
         playlistLoadedAt[source.id] = System.currentTimeMillis()
         return playlist
     }
@@ -294,24 +350,6 @@ class IptvRepository @Inject constructor(
         }
     }
 
-    /**
-     * Smallest Xtream connection limit among [sourceIds], if any panel reported one. Multiview
-     * never opens more streams than that (most accounts allow 1-2).
-     */
-    fun connectionLimit(sourceIds: Collection<String>): Int? = sourceIds.mapNotNull(connectionLimits::get).minOrNull()
-
-    private fun download(url: String): String =
-        try {
-            http.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                val body = response.body ?: throw IOException("Empty response")
-                val bytes = java.io.ByteArrayOutputStream()
-                IptvSafety.copyLimited(body.byteStream(), bytes, IptvSafety.MAX_LOGIN_BYTES)
-                bytes.toString(Charsets.UTF_8.name())
-            }
-        } catch (e: IOException) {
-            throw IptvException(friendly(e), e)
-        }
 
     private fun friendly(e: IOException): String {
         val message = e.message.orEmpty()

@@ -41,6 +41,44 @@ internal fun LiveSourcesDialog(viewModel: LiveTvViewModel, onDismiss: () -> Unit
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf<IptvSourceType?>(null) }
     var confirmRemove by remember { mutableStateOf<IptvSource?>(null) }
+    var optionsFor by remember { mutableStateOf<IptvSource?>(null) }
+    var languagesFor by remember { mutableStateOf<IptvSource?>(null) }
+
+    languagesFor?.let { source ->
+        LanguagePickerDialog(
+            selected = source.languages,
+            onDone = { languages ->
+                viewModel.setSourceLanguages(source.id, languages)
+                languagesFor = null
+            },
+            onDismiss = { languagesFor = null }
+        )
+        return
+    }
+    optionsFor?.let { source ->
+        NuvioDialog(
+            onDismiss = { optionsFor = null },
+            title = source.name,
+            subtitle = stringResource(R.string.live_source_languages_value, languagesLabel(source.languages))
+        ) {
+            SettingsDialogActionRow {
+                SettingsDialogActionButton(
+                    text = stringResource(R.string.live_languages_title),
+                    primary = true,
+                    onClick = { optionsFor = null; languagesFor = source }
+                )
+                SettingsDialogActionButton(
+                    text = stringResource(if (source.enabled) R.string.live_turn_off else R.string.live_turn_on),
+                    onClick = { viewModel.setSourceEnabled(source.id, !source.enabled); optionsFor = null }
+                )
+                SettingsDialogActionButton(
+                    text = stringResource(R.string.live_remove),
+                    onClick = { optionsFor = null; confirmRemove = source }
+                )
+            }
+        }
+        return
+    }
 
     adding?.let { type ->
         AddSourceDialog(type = type, viewModel = viewModel, onDone = { adding = null })
@@ -81,7 +119,7 @@ internal fun LiveSourcesDialog(viewModel: LiveTvViewModel, onDismiss: () -> Unit
                 items(state.sources, key = { it.id }) { source ->
                     SourceRow(
                         source = source,
-                        onToggle = { viewModel.setSourceEnabled(source.id, !source.enabled) },
+                        onOpen = { optionsFor = source },
                         onRemove = { confirmRemove = source }
                     )
                 }
@@ -96,13 +134,13 @@ internal fun LiveSourcesDialog(viewModel: LiveTvViewModel, onDismiss: () -> Unit
 }
 
 @Composable
-private fun SourceRow(source: IptvSource, onToggle: () -> Unit, onRemove: () -> Unit) {
+private fun SourceRow(source: IptvSource, onOpen: () -> Unit, onRemove: () -> Unit) {
     val type = stringResource(if (source.type == IptvSourceType.XTREAM) R.string.live_type_xtream else R.string.live_type_m3u)
     val status = stringResource(if (source.enabled) R.string.live_enabled else R.string.live_disabled)
     val security = stringResource(if (source.isUnencrypted) R.string.live_not_encrypted else R.string.live_encrypted)
     ListItem(
         selected = false,
-        onClick = onToggle,
+        onClick = onOpen,
         onLongClick = onRemove,
         colors = ListItemDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
@@ -113,7 +151,7 @@ private fun SourceRow(source: IptvSource, onToggle: () -> Unit, onRemove: () -> 
         headlineContent = { Text(source.name) },
         supportingContent = {
             Text(
-                text = "$type · $status · $security\n${stringResource(R.string.live_source_hint)}",
+                text = "$type · $status · $security · ${languagesLabel(source.languages)}\n${stringResource(R.string.live_source_hint)}",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -128,11 +166,13 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var epgUrl by remember { mutableStateOf("") }
+    var languages by remember { mutableStateOf(emptyList<String>()) }
+    var pickLanguages by remember { mutableStateOf(false) }
     val isXtream = type == IptvSourceType.XTREAM
     val canSave = !addState.saving && url.isNotBlank() && (!isXtream || (username.isNotBlank() && password.isNotBlank()))
     val save = {
         if (canSave) {
-            viewModel.addSource(name, type, url, username, password, epgUrl) {
+            viewModel.addSource(name, type, url, username, password, epgUrl, languages) {
                 password = ""
                 onDone()
             }
@@ -140,6 +180,15 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
     }
 
     LaunchedEffect(Unit) { viewModel.resetAddState() }
+
+    if (pickLanguages) {
+        LanguagePickerDialog(
+            selected = languages,
+            onDone = { languages = it; pickLanguages = false },
+            onDismiss = { pickLanguages = false }
+        )
+        return
+    }
 
     NuvioDialog(
         onDismiss = { viewModel.cancelAdd(); onDone() },
@@ -203,6 +252,14 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
                 imeAction = ImeAction.Done,
                 onImeAction = save,
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Field(stringResource(R.string.live_languages_title)) {
+            SettingsDialogActionButton(text = languagesLabel(languages), onClick = { pickLanguages = true })
+            Text(
+                text = stringResource(R.string.live_languages_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioTheme.colors.TextSecondary
             )
         }
         // Xtream addresses typed without a scheme become http://, so warn for those too.

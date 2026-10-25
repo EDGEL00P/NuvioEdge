@@ -105,7 +105,8 @@ object XtreamClient {
         source: IptvSource,
         categories: Map<String, String>,
         maxChannels: Int = Int.MAX_VALUE,
-        extension: String = "ts"
+        extension: String = "ts",
+        filter: LanguageFilter = LanguageFilter.NONE
     ): List<IptvChannel> {
         val channels = ArrayList<IptvChannel>()
         try {
@@ -115,7 +116,9 @@ object XtreamClient {
             for (element in entries) {
                 if (channels.size >= maxChannels) break
                 val obj = element as? JsonObject ?: continue
-                streamChannel(obj, source, categories, extension)?.let(channels::add)
+                streamChannel(obj, source, categories, extension)
+                    ?.takeIf { filter.keep(it.name, it.group) }
+                    ?.let(channels::add)
             }
         } catch (e: kotlinx.serialization.SerializationException) {
             if (channels.isEmpty()) throw IptvException("The server returned an invalid channel list", e)

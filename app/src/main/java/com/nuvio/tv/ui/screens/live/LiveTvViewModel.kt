@@ -33,14 +33,44 @@ data class LiveTvUiState(
     val favorites: Set<String> = emptySet(),
     val guide: Map<String, List<EpgProgramme>> = emptyMap(),
     val guideLoading: Boolean = false,
-    val nowMs: Long = System.currentTimeMillis()
+    val nowMs: Long = System.currentTimeMillis(),
+    /** The selected group's channels, looked up in [ChannelIndex] (never filtered on the UI thread). */
+    val channels: List<IptvChannel> = emptyList()
+)
+
+/** Channels split by group once per list or favourites change, off the main thread. */
+internal class ChannelIndex(
+    val groups: List<LiveGroup>,
+    private val all: List<IptvChannel>,
+    private val favorites: List<IptvChannel>,
+    private val byGroup: Map<String, List<IptvChannel>>
 ) {
-    val channels: List<IptvChannel>
-        get() = when (selectedGroup) {
-            LiveTvViewModel.GROUP_ALL -> allChannels
-            LiveTvViewModel.GROUP_FAVORITES -> allChannels.filter { it.id in favorites }
-            else -> allChannels.filter { it.group == selectedGroup }
+    fun channelsOf(key: String): List<IptvChannel> = when (key) {
+        LiveTvViewModel.GROUP_ALL -> all
+        LiveTvViewModel.GROUP_FAVORITES -> favorites
+        else -> byGroup[key].orEmpty()
+    }
+
+    fun has(key: String) = key == LiveTvViewModel.GROUP_ALL || (key == LiveTvViewModel.GROUP_FAVORITES && favorites.isNotEmpty()) || byGroup.containsKey(key)
+
+    companion object {
+        val EMPTY = ChannelIndex(emptyList(), emptyList(), emptyList(), emptyMap())
+
+        fun build(all: List<IptvChannel>, favoriteIds: Set<String>): ChannelIndex {
+            val byGroup = LinkedHashMap<String, MutableList<IptvChannel>>()
+            val favorites = ArrayList<IptvChannel>()
+            for (channel in all) {
+                byGroup.getOrPut(channel.group) { ArrayList() }.add(channel)
+                if (channel.id in favoriteIds) favorites.add(channel)
+            }
+            val groups = buildList {
+                if (favorites.isNotEmpty()) add(LiveGroup(LiveTvViewModel.GROUP_FAVORITES, LiveTvViewModel.GROUP_FAVORITES, favorites.size))
+                if (all.isNotEmpty()) add(LiveGroup(LiveTvViewModel.GROUP_ALL, LiveTvViewModel.GROUP_ALL, all.size))
+                byGroup.forEach { (group, list) -> add(LiveGroup(group, group, list.size)) }
+            }
+            return ChannelIndex(groups, all, favorites, byGroup)
         }
+    }
 }
 
 data class AddSourceState(val saving: Boolean = false, val error: String? = null)
@@ -58,23 +88,30 @@ class LiveTvViewModel @Inject constructor(
 
     private var loadJob: Job? = null
     private var addJob: Job? = null
+    private var indexJob: Job? = null
+    private var focusJob: Job? = null
+    private var pendingGroup: String? = null
+    private var index: ChannelIndex = ChannelIndex.EMPTY
 
     /** True while the Live TV screen is on screen; the background refresh only runs then. */
     private val visible = MutableStateFlow(false)
+    /** Set once the Live TV screen has been shown; until then only the source list is kept. */
+    private var wantsChannels = false
     private var lastLoadMs = 0L
 
     init {
         viewModelScope.launch(liveErrors) {
             repository.sources.distinctUntilChanged().collect { sources ->
-                val changed = sources.map { it.contentKey to it.enabled } !=
-                    _uiState.value.sources.map { it.contentKey to it.enabled }
+                val changed = sources.map { it.filterKey to it.enabled } !=
+                    _uiState.value.sources.map { it.filterKey to it.enabled }
                 _uiState.update { it.copy(sources = sources, sourcesLoaded = true) }
-                if (changed || _uiState.value.allChannels.isEmpty()) load(force = false)
+                if (wantsChannels && (changed || _uiState.value.allChannels.isEmpty())) load(force = false)
             }
         }
         viewModelScope.launch(liveErrors) {
             repository.favorites.collect { favs ->
-                _uiState.update { state -> state.copy(favorites = favs).withGroups() }
+                _uiState.update { state -> state.copy(favorites = favs) }
+                rebuildIndex()
             }
         }
         viewModelScope.launch(liveErrors) {
@@ -87,9 +124,23 @@ class LiveTvViewModel @Inject constructor(
 
     fun refresh() = load(force = true)
 
+    /** Deletes the downloaded lists and guides, then downloads them again. */
+    fun clearDownloads() {
+        viewModelScope.launch(liveErrors) {
+            repository.clearCache()
+            load(force = true)
+        }
+    }
+
     /** Called by the screen on start/stop: no guide work while the player or another screen is up. */
     fun setVisible(isVisible: Boolean) {
         visible.value = isVisible
+        if (isVisible && !wantsChannels) {
+            // First time on screen: load the channels. Settings uses this view model for sources
+            // only and never pays for parsing the lists.
+            wantsChannels = true
+            if (_uiState.value.sourcesLoaded && _uiState.value.allChannels.isEmpty()) load(force = false)
+        }
         if (isVisible) onClockTick()
     }
 
@@ -104,7 +155,8 @@ class LiveTvViewModel @Inject constructor(
         loadJob?.cancel()
         val sources = _uiState.value.sources
         if (sources.none { it.enabled }) {
-            _uiState.update { it.copy(allChannels = emptyList(), guide = emptyMap(), errors = emptyMap(), loading = false).withGroups() }
+            _uiState.update { it.copy(allChannels = emptyList(), guide = emptyMap(), errors = emptyMap(), loading = false) }
+            rebuildIndex()
             return
         }
         lastLoadMs = System.currentTimeMillis()
@@ -114,8 +166,9 @@ class LiveTvViewModel @Inject constructor(
             try {
                 val result = repository.loadChannels(sources, force)
                 _uiState.update {
-                    it.copy(allChannels = result.channels, errors = result.errors, loading = false).withGroups()
+                    it.copy(allChannels = result.channels, errors = result.errors, loading = false)
                 }
+                rebuildIndex()
                 _uiState.update { it.copy(guideLoading = true) }
                 val guide = repository.loadGuide(sources, result.channels, force)
                 _uiState.update { it.copy(guide = guide, nowMs = System.currentTimeMillis()) }
@@ -126,7 +179,47 @@ class LiveTvViewModel @Inject constructor(
         }
     }
 
-    fun selectGroup(key: String) = _uiState.update { it.copy(selectedGroup = key) }
+    fun selectGroup(key: String) {
+        focusJob?.cancel()
+        pendingGroup = null
+        if (key == _uiState.value.selectedGroup) return
+        _uiState.update { it.copy(selectedGroup = key, channels = index.channelsOf(key)) }
+    }
+
+    /**
+     * A group got focus: show its channels once the D-pad rests on it, so holding Down through
+     * the groups doesn't rebuild the channel list at every step.
+     */
+    fun focusGroup(key: String) {
+        focusJob?.cancel()
+        pendingGroup = key
+        focusJob = viewModelScope.launch(liveErrors) {
+            delay(GROUP_FOCUS_SETTLE_MS)
+            selectGroup(key)
+        }
+    }
+
+    /** Right pressed on a group before it settled: show its channels now. True when there was one. */
+    fun flushGroupFocus(): Boolean {
+        val key = pendingGroup ?: return false
+        selectGroup(key)
+        return true
+    }
+
+    private fun rebuildIndex() {
+        indexJob?.cancel()
+        val state = _uiState.value
+        val all = state.allChannels
+        val favorites = state.favorites
+        indexJob = viewModelScope.launch(liveErrors) {
+            val built = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { ChannelIndex.build(all, favorites) }
+            index = built
+            _uiState.update { current ->
+                val selected = current.selectedGroup.takeIf(built::has) ?: GROUP_ALL
+                current.copy(groups = built.groups, selectedGroup = selected, channels = built.channelsOf(selected))
+            }
+        }
+    }
 
     fun toggleFavorite(channel: IptvChannel) {
         viewModelScope.launch(liveErrors) { repository.toggleFavorite(channel.id) }
@@ -140,6 +233,10 @@ class LiveTvViewModel @Inject constructor(
         viewModelScope.launch(liveErrors) { repository.setSourceEnabled(id, enabled) }
     }
 
+    fun setSourceLanguages(id: String, languages: List<String>) {
+        viewModelScope.launch(liveErrors) { repository.setSourceLanguages(id, languages) }
+    }
+
     fun resetAddState() = _addState.update { AddSourceState() }
 
     fun addSource(
@@ -149,13 +246,14 @@ class LiveTvViewModel @Inject constructor(
         username: String,
         password: String,
         epgUrl: String,
+        languages: List<String>,
         onDone: () -> Unit
     ) {
         if (_addState.value.saving) return
         addJob = viewModelScope.launch(liveErrors) {
             _addState.value = AddSourceState(saving = true)
             try {
-                repository.addSource(name, type, url, username, password, epgUrl)
+                repository.addSource(name, type, url, username, password, epgUrl, languages)
                 _addState.value = AddSourceState()
                 onDone()
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -174,26 +272,14 @@ class LiveTvViewModel @Inject constructor(
     }
 
     /** Remembers the list the user is zapping through so CH+/CH- in the player can move along it. */
-    fun startZapSession(channel: IptvChannel) {
+    fun startZapSession(channel: IptvChannel, fromAll: Boolean = false) {
         val state = _uiState.value
-        LiveZapSession.start(state.channels, channel, state.guide, state.allChannels)
-    }
-
-    private fun LiveTvUiState.withGroups(): LiveTvUiState {
-        val groups = buildList {
-            val favCount = allChannels.count { it.id in favorites }
-            if (favCount > 0) add(LiveGroup(GROUP_FAVORITES, GROUP_FAVORITES, favCount))
-            if (allChannels.isNotEmpty()) add(LiveGroup(GROUP_ALL, GROUP_ALL, allChannels.size))
-            allChannels.groupingBy { it.group }.eachCount().forEach { (group, count) ->
-                add(LiveGroup(group, group, count))
-            }
-        }
-        val selected = selectedGroup.takeIf { key -> groups.any { it.key == key } } ?: GROUP_ALL
-        return copy(groups = groups, selectedGroup = selected)
+        LiveZapSession.start(if (fromAll) state.allChannels else state.channels, channel, state.guide, state.allChannels)
     }
 
     companion object {
         private const val REFRESH_EVERY_MS = 30 * 60 * 1000L
+        private const val GROUP_FOCUS_SETTLE_MS = 160L
         const val GROUP_ALL = "\u0001all"
         const val GROUP_FAVORITES = "\u0001favorites"
     }
@@ -249,6 +335,7 @@ object LiveZapSession {
         all = allChannels
         if (listChanged) {
             backups = null
+            indexJob?.cancel()
             indexJob = indexScope.launch(liveErrors) {
                 val built = BackupIndex(allChannels)
                 if (all === allChannels) backups = built // a newer list may have arrived meanwhile
@@ -269,7 +356,8 @@ object LiveZapSession {
     fun step(forward: Boolean): IptvChannel? {
         val list = channels
         if (list.size < 2 || index !in list.indices) return null
-        index = (index + if (forward) 1 else -1 + list.size) % list.size
+        val delta = if (forward) 1 else list.size - 1
+        index = (index + delta) % list.size
         return list[index]
     }
 

@@ -956,7 +956,13 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     )
 
     resetLoadingOverlayForNewStream()
-    releasePlayer(flushPlaybackState = false)
+    if (isLiveTvPlayback && _exoPlayer != null) {
+        // Live TV channel change: keep the ExoPlayer and its decoders, only swap the stream.
+        // Tearing the player down and building a new one costs about a second on TV boxes.
+        prepareLiveChannelSwitch()
+    } else {
+        releasePlayer(flushPlaybackState = false)
+    }
 
     applySelectedStreamState(
         stream = stream,
@@ -1010,7 +1016,11 @@ internal fun PlayerRuntimeController.switchToSourceStream(
                 runAfrPreflightIfEnabled(
                     url = playbackUrl,
                     headers = playbackHeaders,
-                    frameRateMatchingMode = playerSettings.frameRateMatchingMode,
+                    frameRateMatchingMode = if (isLiveTvPlayback) {
+                        com.nuvio.tv.data.local.FrameRateMatchingMode.OFF
+                    } else {
+                        playerSettings.frameRateMatchingMode
+                    },
                     resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled,
                     mimeType = currentStreamMimeType
                 )
@@ -2236,4 +2246,23 @@ private fun PlayerRuntimeController.playNextCloudLibraryFile(
             }
         }
     }
+}
+
+/** Stops work tied to the previous live channel before the same player opens the next one. */
+private fun PlayerRuntimeController.prepareLiveChannelSwitch() {
+    errorRetryJob?.cancel()
+    errorRetryJob = null
+    playbackPreparationJob?.cancel()
+    playbackPreparationJob = null
+    frameRateProbeJob?.cancel()
+    cancelAfrPreflight()
+    stillWatchingPromptJob?.cancel()
+    stillWatchingPromptJob = null
+    stableProgressResetJob?.cancel()
+    stableProgressResetJob = null
+    _exoPlayer?.let { player ->
+        runCatching { player.stop() }
+        runCatching { player.clearMediaItems() }
+    }
+    resetPlaybackTimeline()
 }

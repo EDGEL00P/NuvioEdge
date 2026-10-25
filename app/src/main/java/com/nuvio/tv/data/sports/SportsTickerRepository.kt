@@ -39,10 +39,20 @@ class SportsTickerRepository @Inject constructor(
         .build()
 
     private val enabledKey = booleanPreferencesKey("ticker_enabled")
+    private val overLiveKey = booleanPreferencesKey("ticker_over_live_channels")
 
-    /** On by default; the only ticker setting. */
+    /** On by default. */
     val enabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.orEmptyOnReadError().map { it[enabledKey] ?: true }
+    }
+
+    /** Also show the ticker over full-screen live channels (it never covers the player controls). */
+    val overLiveChannels: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.orEmptyOnReadError().map { it[overLiveKey] ?: true }
+    }
+
+    suspend fun setOverLiveChannels(value: Boolean) {
+        factory.get(profileManager.activeProfileId.value, FEATURE).edit { it[overLiveKey] = value }
     }
 
     suspend fun setEnabled(value: Boolean) {

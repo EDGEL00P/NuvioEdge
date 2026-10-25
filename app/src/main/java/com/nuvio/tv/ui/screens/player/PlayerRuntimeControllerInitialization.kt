@@ -223,7 +223,9 @@ internal fun PlayerRuntimeController.initializePlayer(
             mpvHi10pGnextSoftwareFallbackEnabledSetting =
                 playerSettings.mpvHi10pGnextSoftwareFallbackEnabled
             mpvHardwareDecodeModeSetting = playerSettings.mpvHardwareDecodeMode
-            var effectiveInternalPlayerEngine = overrideInternalPlayerEngine ?: playerSettings.internalPlayerEngine
+            var effectiveInternalPlayerEngine = overrideInternalPlayerEngine
+                // Live TV channel changes reuse the ExoPlayer instance, which MPV has no equivalent for.
+                ?: if (isLiveTvPlayback) InternalPlayerEngine.EXOPLAYER else playerSettings.internalPlayerEngine
             if (effectiveInternalPlayerEngine == InternalPlayerEngine.AUTO) {
                 effectiveInternalPlayerEngine = resolveAutoInternalPlayerEngine()
             }
@@ -274,7 +276,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                 runAfrPreflightIfEnabled(
                     url = url,
                     headers = headers,
-                    frameRateMatchingMode = playerSettings.frameRateMatchingMode,
+                    // Live TV: no display-mode probe. It opens a second connection to the channel
+                    // (many IPTV accounts allow only one) and blanks the screen on every zap.
+                    frameRateMatchingMode = if (isLiveTvPlayback) FrameRateMatchingMode.OFF else playerSettings.frameRateMatchingMode,
                     resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled,
                     mimeType = currentStreamMimeType,
                     preflightToken = afrPreflightToken
@@ -498,7 +502,9 @@ internal fun PlayerRuntimeController.initializePlayer(
             )
             val isHlsStream = isHls || resolvedStreamMime == MimeTypes.APPLICATION_M3U8
             val isDashStream = resolvedStreamMime == MimeTypes.APPLICATION_MPD
-            val parallelActive = playerSettings.parallelNetworkEnabled && playerSettings.useParallelConnections
+            // Live streams have no length, so range-split downloads and the VOD disk cache don't apply.
+            val parallelActive = !isLiveTvPlayback &&
+                playerSettings.parallelNetworkEnabled && playerSettings.useParallelConnections
             val useChunkSessionSource = parallelActive && !isHlsStream && !isDashStream
 
             val parallelOverheadMb = if (useChunkSessionSource) {
@@ -511,7 +517,12 @@ internal fun PlayerRuntimeController.initializePlayer(
             }
             currentParallelChunkOverheadMb = parallelOverheadMb
 
-            val loadControl = if (playerSettings.nuvioPerformanceModeEnabled) {
+            val loadControl = if (isLiveTvPlayback) {
+                effectiveBackBufferDurationMs = 0
+                currentBitrateAwareLoadControl = null
+                Log.i(PlayerRuntimeController.TAG, "BUFFER_GATE: engine=live-tv host=${url.safeHost()}")
+                liveTvLoadControl()
+            } else if (playerSettings.nuvioPerformanceModeEnabled) {
                 effectiveBackBufferDurationMs = NuvioExoPlayerPerformanceHelper.backBufferMs
                 currentBitrateAwareLoadControl = null
                 Log.i(
@@ -594,13 +605,13 @@ internal fun PlayerRuntimeController.initializePlayer(
             // first frame, since the stream content is not known here.
             mediaSourceFactory.bufferEngineEnabled = playerSettings.bufferEngineEnabled
             mediaSourceFactory.bufferBudgetManaged = playerSettings.bufferBudgetManaged
-            mediaSourceFactory.vodCacheEnabled = playerSettings.vodCacheEnabled
+            mediaSourceFactory.vodCacheEnabled = playerSettings.vodCacheEnabled && !isLiveTvPlayback
             mediaSourceFactory.vodCacheSizeMode = playerSettings.vodCacheSizeMode
             mediaSourceFactory.vodCacheSizeMb = playerSettings.vodCacheSizeMb
             mediaSourceFactory.nativeEngineEnabled = playerSettings.nuvioPerformanceModeEnabled
 
             mediaSourceFactory.nuvioPerformanceModeEnabled = playerSettings.nuvioPerformanceModeEnabled
-            if (playerSettings.parallelNetworkEnabled && !isTorrentStream) {
+            if (playerSettings.parallelNetworkEnabled && !isTorrentStream && !isLiveTvPlayback) {
                 mediaSourceFactory.useParallelConnections = playerSettings.useParallelConnections
                 mediaSourceFactory.parallelConnectionCount = playerSettings.parallelConnectionCount
                 mediaSourceFactory.parallelChunkSizeKb = playerSettings.parallelChunkSizeKb
@@ -825,7 +836,9 @@ internal fun PlayerRuntimeController.initializePlayer(
 
             // ── Extractors & DV Hook ──
             val extractorsFactory = DefaultExtractorsFactory()
-                .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+                .setTsExtractorFlags(
+                    DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or liveTsExtractorFlags()
+                )
                 .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
 
             // Manual Convert-to-DV8.1 uses mode 2; if a prior attempt at this stream
@@ -2842,3 +2855,34 @@ private fun PlayerView.videoBoundsFraction(aspectRatio: Float): RectF? {
         top + frameHeight / viewHeight,
     )
 }
+
+/**
+ * Live TV: start on the first I-frame instead of waiting for an IDR frame (often seconds apart in
+ * broadcast streams), and cope with H.264 streams that lack access unit delimiters.
+ */
+private fun PlayerRuntimeController.liveTsExtractorFlags(): Int =
+    if (isLiveTvPlayback) {
+        DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+    } else {
+        0
+    }
+
+internal val PlayerRuntimeController.isLiveTvPlayback: Boolean
+    get() = contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE
+
+/**
+ * Live TV buffering: start after 1.5 s of video so channels open quickly, but after a stall wait
+ * for 5 s so a slow server gets a cushion instead of stuttering again. No back buffer (live
+ * streams can't be rewound here) and no byte cap tighter than Media3's default.
+ */
+internal fun liveTvLoadControl(): androidx.media3.exoplayer.DefaultLoadControl =
+    androidx.media3.exoplayer.DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            /* minBufferMs = */ 15_000,
+            /* maxBufferMs = */ 50_000,
+            /* bufferForPlaybackMs = */ 1_500,
+            /* bufferForPlaybackAfterRebufferMs = */ 5_000
+        )
+        .setBackBuffer(0, false)
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .build()

@@ -551,7 +551,7 @@
     <string name="trakt_stat_watched_hours">देखे गए घंटे</string>
     <string name="trakt_disconnect">डिस्कनेक्ट</string>
     <string name="trakt_disconnect_title">Trakt डिस्कनेक्ट करें?</string>
-    <string name="trakt_disconnect_subtitle">यह आपके Trakt अकाउंट को Nuvio से डिस्कनेक्ट कर देगा।</string>
+    <string name="trakt_disconnect_subtitle">यह आपके Trakt अकाउंट को NuvioEdge से डिस्कनेक्ट कर देगा।</string>
     <string name="trakt_login">लॉगिन</string>
     <string name="trakt_retry">फिर से कोशिश करें</string>
     <string name="trakt_back">वापस</string>
@@ -920,7 +920,7 @@
     <string name="catalog_see_all_empty_subtitle">कोई दूसरा कैटलॉग आज़माएँ या बाद में देखें</string>
 
     <!-- LayoutSelectionScreen -->
-    <string name="layout_selection_welcome">Nuvio में आपका स्वागत है</string>
+    <string name="layout_selection_welcome">NuvioEdge में आपका स्वागत है</string>
     <string name="layout_selection_subtitle">अपना होम स्क्रीन लेआउट चुनें</string>
     <string name="layout_selection_continue">जारी रखें</string>
 

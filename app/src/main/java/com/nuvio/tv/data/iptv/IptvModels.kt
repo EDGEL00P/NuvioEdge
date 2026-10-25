@@ -23,7 +23,9 @@ data class IptvSource(
     val password: String = "",
     /** Optional XMLTV guide URL. Blank = use the playlist's url-tvg or the Xtream xmltv.php. */
     val epgUrl: String = "",
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /** Language ids ([LanguageFilter.LANGUAGES]) to keep; empty keeps every channel. */
+    val languages: List<String> = emptyList()
 ) {
     /** True when the playlist/panel or guide is fetched over plain HTTP. */
     val isUnencrypted: Boolean
@@ -32,6 +34,10 @@ data class IptvSource(
     /** Changes whenever anything that affects the fetched content changes. */
     val contentKey: String
         get() = listOf(type.name, url, username, password, epgUrl).joinToString("\u0000")
+
+    /** [contentKey] plus the language choice: the parsed channel list depends on both. */
+    val filterKey: String
+        get() = contentKey + "\u0000" + languages.sorted().joinToString(",")
 
     override fun toString(): String = "IptvSource(id=$id, name=$name, type=$type)"
 

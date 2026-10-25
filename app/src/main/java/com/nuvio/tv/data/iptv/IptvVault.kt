@@ -226,8 +226,15 @@ class IptvFileCache(
         // Unique temp file: two writers of the same entry must not interleave into one file.
         val tmp = File.createTempFile(name.take(16), ".tmp", dir)
         try {
-            SegmentedAesGcm.encryptingStream(tmp.outputStream().buffered(), encryptionKey(), name.toByteArray())
-                .use(block)
+            val raw = tmp.outputStream().buffered()
+            // Close the file even when the cipher can't be set up (the stream below never opened).
+            val encrypting = try {
+                SegmentedAesGcm.encryptingStream(raw, encryptionKey(), name.toByteArray())
+            } catch (e: Exception) {
+                raw.close()
+                throw e
+            }
+            encrypting.use(block)
             if (!tmp.renameTo(target)) throw IOException("Could not store cache entry")
         } finally {
             tmp.delete()
@@ -239,11 +246,20 @@ class IptvFileCache(
         val name = fileName(key)
         val file = File(dir, "$name.enc")
         if (!file.exists()) return null
-        return try {
-            SegmentedAesGcm.decryptingStream(file.inputStream().buffered(), encryptionKey(), name.toByteArray())
+        val raw = try {
+            file.inputStream().buffered()
         } catch (e: IOException) {
+            return null // removed in between (Clear downloaded lists)
+        }
+        return try {
+            SegmentedAesGcm.decryptingStream(raw, encryptionKey(), name.toByteArray())
+        } catch (e: IOException) {
+            raw.close()
             file.delete()
             null
+        } catch (e: Exception) {
+            raw.close()
+            throw e
         }
     }
 

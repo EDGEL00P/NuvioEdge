@@ -52,6 +52,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -1052,6 +1053,7 @@ open class MainActivity : ComponentActivity() {
                             add(Screen.Search.route)
                             add(Screen.Library.route)
                             add(Screen.Live.route)
+                            add(Screen.Sports.route)
                             add(Screen.Settings.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
                                 add(Screen.Discover.route)
@@ -1064,6 +1066,7 @@ open class MainActivity : ComponentActivity() {
                     val strNavSearch = stringResource(R.string.nav_search)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavLive = stringResource(R.string.nav_live)
+                    val strNavSports = stringResource(R.string.nav_sports)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
                         strNavHome,
@@ -1071,6 +1074,7 @@ open class MainActivity : ComponentActivity() {
                         strNavSearch,
                         strNavLibrary,
                         strNavLive,
+                        strNavSports,
                         strNavSettings,
                         discoverLocation
                     ) {
@@ -1110,6 +1114,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.Live.route,
                                     label = strNavLive,
                                     icon = Icons.Default.LiveTv
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Sports.route,
+                                    label = strNavSports,
+                                    icon = Icons.Default.SportsSoccer
                                 )
                             )
                             add(
@@ -1274,9 +1285,9 @@ open class MainActivity : ComponentActivity() {
                             focusedSplashTheme = null
                         }
                     }
-                    // Sports ticker over every screen (has its own on/off switch in Live TV).
+                    // Channel number typed during live playback. The sports ticker is drawn by the
+                    // Live TV and Sports screens and the live player, not over every screen.
                     if (startupDestination == StartupDestination.Content) {
-                        com.nuvio.tv.ui.components.ticker.SportsTickerOverlay()
                         com.nuvio.tv.ui.screens.live.LiveNumberEntryOverlay()
                     }
                     if (splashAlpha > 0f) {

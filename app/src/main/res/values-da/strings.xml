@@ -346,26 +346,26 @@
     <string name="about_licenses_attributions">Licenser &amp; attributioner</string>
     <string name="about_licenses_attributions_subtitle">Datakilder, anerkendelser og Android-licenser</string>
     <string name="licenses_attributions_title">Licenser &amp; attributioner</string>
-    <string name="licenses_attributions_subtitle">Dataleverandører, servicekreditter og Android-afspilningslicenser brugt af Nuvio TV.</string>
+    <string name="licenses_attributions_subtitle">Dataleverandører, servicekreditter og Android-afspilningslicenser brugt af NuvioEdge.</string>
     <string name="licenses_attributions_section_app">APP-LICENS</string>
     <string name="licenses_attributions_section_data">DATA &amp; TJENESTER</string>
     <string name="licenses_attributions_section_playback">ANDROID-AFSPILNINGSLICENSER</string>
     <string name="licenses_attributions_nuvio_title">Nuvio TV</string>
     <string name="licenses_attributions_nuvio_body">Kildekode og licensvilkår er tilgængelige i projektets repository. Licenseret under GNU General Public License v3.0.</string>
     <string name="licenses_attributions_tmdb_title">The Movie Database (TMDB)</string>
-    <string name="licenses_attributions_tmdb_body">Nuvio bruger TMDB API til film- og TV-metadata, artwork, trailere, cast, produktionsdetaljer, samlinger og anbefalinger. Dette produkt bruger TMDB API, men er ikke godkendt eller certificeret af TMDB.</string>
+    <string name="licenses_attributions_tmdb_body">NuvioEdge bruger TMDB API til film- og TV-metadata, artwork, trailere, cast, produktionsdetaljer, samlinger og anbefalinger. Dette produkt bruger TMDB API, men er ikke godkendt eller certificeret af TMDB.</string>
     <string name="licenses_attributions_trakt_title">Trakt</string>
-    <string name="licenses_attributions_trakt_body">Nuvio forbinder til Trakt til kontoautentificering, se-historik, fremskridtssynkronisering, biblioteksdata, vurderinger, lister og kommentarer. Nuvio er ikke tilknyttet eller godkendt af Trakt.</string>
+    <string name="licenses_attributions_trakt_body">NuvioEdge forbinder til Trakt til kontoautentificering, se-historik, fremskridtssynkronisering, biblioteksdata, vurderinger, lister og kommentarer. NuvioEdge er ikke tilknyttet eller godkendt af Trakt.</string>
     <string name="licenses_attributions_premiumize_title">Premiumize</string>
-    <string name="licenses_attributions_premiumize_body">Nuvio forbinder til Premiumize til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. Nuvio er ikke tilknyttet eller godkendt af Premiumize.</string>
+    <string name="licenses_attributions_premiumize_body">NuvioEdge forbinder til Premiumize til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. NuvioEdge er ikke tilknyttet eller godkendt af Premiumize.</string>
     <string name="licenses_attributions_torbox_title">TorBox</string>
-    <string name="licenses_attributions_torbox_body">Nuvio forbinder til TorBox til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. Nuvio er ikke tilknyttet eller godkendt af TorBox.</string>
+    <string name="licenses_attributions_torbox_body">NuvioEdge forbinder til TorBox til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. NuvioEdge er ikke tilknyttet eller godkendt af TorBox.</string>
     <string name="licenses_attributions_mdblist_title">MDBList</string>
-    <string name="licenses_attributions_mdblist_body">Nuvio bruger MDBList til vurderinger og data fra eksterne scoreudbydere. Nuvio er ikke tilknyttet eller godkendt af MDBList.</string>
+    <string name="licenses_attributions_mdblist_body">NuvioEdge bruger MDBList til vurderinger og data fra eksterne scoreudbydere. NuvioEdge er ikke tilknyttet eller godkendt af MDBList.</string>
     <string name="licenses_attributions_introdb_title">IntroDB</string>
-    <string name="licenses_attributions_introdb_body">Nuvio bruger IntroDB API til fællesskabsleverede intro-, recap-, credits- og preview-tidsstempler brugt af spring-over-kontrolelementer. Nuvio er ikke tilknyttet eller godkendt af IntroDB.</string>
+    <string name="licenses_attributions_introdb_body">NuvioEdge bruger IntroDB API til fællesskabsleverede intro-, recap-, credits- og preview-tidsstempler brugt af spring-over-kontrolelementer. NuvioEdge er ikke tilknyttet eller godkendt af IntroDB.</string>
     <string name="licenses_attributions_imdb_title">IMDb Non-Commercial Datasets</string>
-    <string name="licenses_attributions_imdb_body">Nuvio bruger IMDb Non-Commercial Datasets, herunder title.ratings.tsv.gz, til IMDb-vurderinger og stemmeantal. Information venligst stillet til rådighed af IMDb (https://www.imdb.com). Brugt med tilladelse. IMDb-data er til personlig og ikke-kommerciel brug under IMDb\'s vilkår.</string>
+    <string name="licenses_attributions_imdb_body">NuvioEdge bruger IMDb Non-Commercial Datasets, herunder title.ratings.tsv.gz, til IMDb-vurderinger og stemmeantal. Information venligst stillet til rådighed af IMDb (https://www.imdb.com). Brugt med tilladelse. IMDb-data er til personlig og ikke-kommerciel brug under IMDb\'s vilkår.</string>
     <string name="licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="licenses_attributions_exoplayer_body">Brugt som Android-afspilningsmotor. Licenseret under Apache License, Version 2.0.</string>
     <string name="licenses_attributions_libmpv_title">libmpv / libmpv-android</string>
@@ -391,7 +391,7 @@
     <string name="settings_advanced_subtitle">Ydeevne, navigation, cache og diagnostik</string>
     <string name="experience_mode_essential">Grundlæggende</string>
     <string name="experience_mode_advanced">Avanceret</string>
-    <string name="experience_mode_choose_title">Vælg din Nuvio-oplevelse</string>
+    <string name="experience_mode_choose_title">Vælg din NuvioEdge-oplevelse</string>
     <string name="experience_mode_choose_subtitle">Start simpelt eller lås alle tilpasninger op. Du kan skifte når som helst.</string>
     <string name="experience_mode_essential_card_subtitle">Fokuseret opsætning, add-ons, afspilningsgrundlag, Trakt og kontoindstillinger.</string>
     <string name="experience_mode_advanced_card_subtitle">Fulde indstillinger, layoutkontrol, katalogrækkefølge, samlinger, plug-ins og diagnostik.</string>
@@ -473,8 +473,8 @@
     <string name="advanced_section_dv_diagnostics" translatable="false">DV Diagnostics</string>
     <string name="advanced_fast_horizontal_navigation">Hurtig vandret navigation</string>
     <string name="advanced_fast_horizontal_navigation_subtitle">Øg D-pad-gentagnelseshastighed i rækker mens gentagelsesbegrænsning forbliver aktiv.</string>
-    <string name="advanced_nuvio_focus_scroll">Nuvio fokusscrolling</string>
-    <string name="advanced_nuvio_focus_scroll_subtitle">Brug Nuvio\'s brugerdefinerede globale fokusscroll-animation og -positionering.</string>
+    <string name="advanced_nuvio_focus_scroll">NuvioEdge fokusscrolling</string>
+    <string name="advanced_nuvio_focus_scroll_subtitle">Brug NuvioEdge\'s brugerdefinerede globale fokusscroll-animation og -positionering.</string>
     <string name="advanced_memory_only_vertical_scroll">Hukommelsesbaseret lodret scrolling</string>
     <string name="advanced_memory_only_vertical_scroll_subtitle">Spring disk- og netværksbilledanmodninger over under lodret scrolling af startsiderækkerne.</string>
     <string name="advanced_compose_highlighter">Compose-fremhæver</string>
@@ -592,8 +592,8 @@
     <string name="playback_player_ask_desc">Vælg afspiller hver gang</string>
     <string name="playback_player_auto">Auto (bedst til indhold)</string>
     <string name="playback_player_auto_desc">ExoPlayer til film &amp; TV-serier · MPV til anime</string>
-    <string name="playback_engine_exoplayer_desc">Bedst kompatibilitet med nuværende Nuvio-funktioner.</string>
-    <string name="playback_engine_mvplayer_desc">Bruger libmpv med Nuvio OSD-kontrol. Eksperimentel.</string>
+    <string name="playback_engine_exoplayer_desc">Bedst kompatibilitet med nuværende NuvioEdge-funktioner.</string>
+    <string name="playback_engine_mvplayer_desc">Bruger libmpv med NuvioEdge OSD-kontrol. Eksperimentel.</string>
 
     <string name="video_section">Video</string>
     <string name="audio_trailer_section">Trailer</string>
@@ -1167,7 +1167,7 @@
     <string name="trakt_stat_watched_hours">Seede timer</string>
     <string name="trakt_disconnect">Afbryd</string>
     <string name="trakt_disconnect_title">Afbryd Trakt?</string>
-    <string name="trakt_disconnect_subtitle">Dette vil afbryde din Trakt-konto fra Nuvio.</string>
+    <string name="trakt_disconnect_subtitle">Dette vil afbryde din Trakt-konto fra NuvioEdge.</string>
     <string name="trakt_login">Login</string>
     <string name="trakt_retry">Prøv igen</string>
     <string name="trakt_back">Tilbage</string>
@@ -1353,7 +1353,7 @@
     <string name="stream_type_torrent">Torrent</string>
     <string name="stream_type_youtube">YouTube</string>
     <string name="p2p_consent_title">P2P-streaming</string>
-    <string name="p2p_consent_body">Denne stream bruger peer-to-peer (P2P)-teknologi. Ved at aktivere P2P anerkender og accepterer du, at:\n\n\u2022 Din IP-adresse vil være synlig for andre peers i netværket\n\u2022 Du er eneansvarlig for det indhold, du tilgår\n\u2022 Du bekræfter, at du har den lovlige ret til at streame dette indhold i din jurisdiktion\n\u2022 Nuvio hoster, distribuerer eller kontrollerer ikke noget P2P-indhold\n\u2022 Nuvio er ikke ansvarlig for eventuelle juridiske konsekvenser som følge af din brug af P2P-streaming\n\nDu bruger denne funktion udelukkende på eget ansvar. P2P kan deaktiveres når som helst i Indstillinger.</string>
+    <string name="p2p_consent_body">Denne stream bruger peer-to-peer (P2P)-teknologi. Ved at aktivere P2P anerkender og accepterer du, at:\n\n\u2022 Din IP-adresse vil være synlig for andre peers i netværket\n\u2022 Du er eneansvarlig for det indhold, du tilgår\n\u2022 Du bekræfter, at du har den lovlige ret til at streame dette indhold i din jurisdiktion\n\u2022 NuvioEdge hoster, distribuerer eller kontrollerer ikke noget P2P-indhold\n\u2022 NuvioEdge er ikke ansvarlig for eventuelle juridiske konsekvenser som følge af din brug af P2P-streaming\n\nDu bruger denne funktion udelukkende på eget ansvar. P2P kan deaktiveres når som helst i Indstillinger.</string>
     <string name="p2p_consent_enable">Aktivér P2P</string>
     <string name="p2p_consent_cancel">Annullér</string>
     <string name="settings_p2p_title">P2P-streaming</string>
@@ -1804,7 +1804,7 @@
     <string name="catalog_see_all_empty_title">Ingen indhold tilgængeligt</string>
     <string name="catalog_see_all_empty_subtitle">Prøv et andet katalog, eller kom tilbage senere</string>
 
-    <string name="layout_selection_welcome">Velkommen til Nuvio</string>
+    <string name="layout_selection_welcome">Velkommen til NuvioEdge</string>
     <string name="layout_selection_subtitle">Vælg dit startskærm-layout</string>
     <string name="layout_selection_continue">Fortsæt</string>
 
@@ -1981,7 +1981,7 @@
     <string name="cd_preview">Forhåndsvisning</string>
     <string name="cd_test">Test</string>
     <string name="cd_unlink">Fjern tilknytning</string>
-    <string name="cd_nuvio_logo">NuvioTV</string>
+    <string name="cd_nuvio_logo">NuvioEdge</string>
     <string name="cd_trakt_logo">Trakt-logo</string>
     <string name="cd_trakt_qr">Trakt-aktiverings-QR</string>
     <string name="cd_imdb">IMDb</string>
@@ -1992,7 +1992,7 @@
     <string name="cd_expand">Udvid %1$s</string>
     <string name="cd_collapse">Skjul %1$s</string>
     <string name="cd_qr_login">QR-loginkode</string>
-    <string name="cd_nuvio">Nuvio</string>
+    <string name="cd_nuvio">NuvioEdge</string>
 
     <string name="debug_signin_success">Logget ind</string>
     <string name="debug_generate_description">Debug-genereret %1$s element nr. %2$d</string>
@@ -2134,7 +2134,7 @@
     <string name="collections_editor_tmdb_list_helper">Eksempel: https://www.themoviedb.org/list/8504994 eller 8504994.</string>
     <string name="collections_editor_tmdb_person_id">Person-ID</string>
     <string name="collections_editor_tmdb_person_helper">Eksempel: https://www.themoviedb.org/person/31-tom-hanks eller 31.</string>
-    <string name="collections_editor_tmdb_title_helper">Vises som række-/fanenavn. Hvis tomt, opretter Nuvio et navn fra kilden.</string>
+    <string name="collections_editor_tmdb_title_helper">Vises som række-/fanenavn. Hvis tomt, opretter NuvioEdge et navn fra kilden.</string>
     <string name="collections_editor_tmdb_quick_genres">Hurtige valg til genrer</string>
     <string name="collections_editor_tmdb_quick_languages">Hurtige valg til sprog</string>
     <string name="collections_editor_tmdb_quick_countries">Hurtige valg til lande</string>
@@ -2307,7 +2307,7 @@
     <string name="autoplay_regex_preset_no_remux_hdr">No REMUX/HDR</string>
 
     <!-- Playback settings sections -->
-    <string name="playback_player_internal_desc">Brug NuvioTV\'s indbyggede afspiller</string>
+    <string name="playback_player_internal_desc">Brug NuvioEdge\'s indbyggede afspiller</string>
 
     <!-- Player runtime: torrent overlay + tracks -->
     <string name="player_torrent_peer_info">%1$d seeders · %2$d peers</string>
