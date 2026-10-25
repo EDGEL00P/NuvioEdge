@@ -10,7 +10,7 @@ The M3U, Xtream and XMLTV code under `app/src/main/java/com/nuvio/tv/data/iptv/`
 
 - `README.md`: NuvioEdge documentation
 - `app/build.gradle.kts`: Application id, update repository, version
-- `app/src/debug/res/values/strings.xml`: Live TV, multiview, guide, sports text; app name
+- `app/src/debug/res/values/strings.xml`: App name
 - `app/src/main/AndroidManifest.xml`: Backup and device-transfer rules
 - `app/src/main/java/com/nuvio/tv/MainActivity.kt`: Live TV sidebar entry; ticker and channel-number overlays; ambient mode off during multiview
 - `app/src/main/java/com/nuvio/tv/core/diagnostics/SentryNetworkBreadcrumbInterceptor.kt`: Removes IPTV logins from crash-report URLs, paths and messages
