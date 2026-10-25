@@ -101,7 +101,9 @@ data class MultiviewState(
     val tileCount: Int = 2,
     /** Set when the TV couldn't keep up and the layout was made smaller. */
     val reducedTo: Int? = null,
-    val lowMemory: Boolean = false
+    val lowMemory: Boolean = false,
+    /** Streams the IPTV account allows at once, when it is lower than what the TV can do. */
+    val accountLimit: Int? = null
 )
 
 /** The channel you were just watching first, then favourites; empty tiles after that. */
@@ -140,9 +142,13 @@ class MultiviewViewModel @Inject constructor(
         viewModelScope.launch(liveErrors) {
             try {
                 val profile = withContext(Dispatchers.Default) { DeviceProfile.read(context) }
-                val maxTiles = DecoderBudget.tilesFor(profile)
+                val deviceMax = DecoderBudget.tilesFor(profile)
                 val sources = repository.sources.first()
                 val channels = repository.loadChannels(sources, force = false).channels
+                // Most Xtream accounts allow 1-2 connections; more tiles would just be refused.
+                val accountLimit = repository.connectionLimit(sources.filter { it.enabled }.map { it.id })
+                    ?.takeIf { it < deviceMax }
+                val maxTiles = accountLimit?.coerceAtLeast(1) ?: deviceMax
                 val favorites = repository.favorites.first()
                 _state.value = MultiviewState(
                     loading = false,
@@ -150,7 +156,8 @@ class MultiviewViewModel @Inject constructor(
                     tiles = initialTiles(channels, favorites, LiveZapSession.currentId()),
                     maxTiles = maxTiles,
                     tileCount = DecoderBudget.bestOption(minOf(4, maxTiles)),
-                    lowMemory = profile.lowRamDevice || profile.smallHeap
+                    lowMemory = profile.lowRamDevice || profile.smallHeap,
+                    accountLimit = accountLimit
                 )
                 backups = withContext(Dispatchers.Default) { BackupIndex(channels) }
             } finally {
@@ -307,6 +314,7 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
         }
         Text(
             text = state.reducedTo?.let { stringResource(R.string.multiview_reduced, it) }
+                ?: state.accountLimit?.let { stringResource(R.string.multiview_account_limit, it) }
                 ?: stringResource(R.string.multiview_device_limit, state.maxTiles),
             color = if (state.reducedTo != null) Color(0xFFFCD34D) else Color(0xFF94A3B8),
             style = MaterialTheme.typography.bodySmall
@@ -327,7 +335,7 @@ private fun Tile(
     events: TileEvents,
     modifier: Modifier
 ) {
-    var status by remember(channel?.id) { mutableStateOf<String?>(null) }
+    var status by remember(channel?.id) { mutableStateOf<TileProblem?>(null) }
 
     Surface(
         onClick = onPick,
@@ -361,9 +369,10 @@ private fun Tile(
                         .background(Color(0xB3000000), RoundedCornerShape(4.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 )
-                status?.let {
+                status?.let { problem ->
                     Text(
-                        text = stringResource(R.string.multiview_tile_recovering, it),
+                        text = if (problem.gaveUp) stringResource(R.string.multiview_tile_offline)
+                        else stringResource(R.string.multiview_tile_recovering, problem.code),
                         color = Color(0xFFFCD34D),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
@@ -378,6 +387,9 @@ private fun Tile(
     }
 }
 
+/** What a tile shows while it recovers ([gaveUp]: retries stopped). */
+private data class TileProblem(val code: String, val gaveUp: Boolean = false)
+
 private fun PlaybackException.isDecoderLimit(): Boolean =
     errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
         errorCode == PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED
@@ -390,7 +402,7 @@ private fun TilePlayer(
     findBackup: () -> IptvChannel?,
     streamClient: OkHttpClient,
     events: TileEvents,
-    onStatus: (String?) -> Unit
+    onStatus: (TileProblem?) -> Unit
 ) {
     val context = LocalContext.current
     val player = remember(channel.id) { buildTilePlayer(context, channel, streamClient, settings.lowMemory) }
@@ -454,12 +466,17 @@ private fun TilePlayer(
             if (error == null && stuckForMs < TILE_STALL_MS) continue
 
             stuckForMs = 0L
-            onStatus(error?.errorCodeName ?: "STALLED")
+            onStatus(TileProblem(error?.errorCodeName ?: "STALLED"))
             if (error?.isDecoderLimit() == true) currentEvents.onDecoderLimit()
             val backup = currentFindBackup()
             when (val action = recovery.onProblem(hasBackup = backup != null)) {
                 TileRecovery.Action.Failover -> {
                     backup?.let(currentEvents.onFailover)
+                    return@LaunchedEffect
+                }
+                TileRecovery.Action.GiveUp -> {
+                    player.stop()
+                    onStatus(TileProblem(error?.errorCodeName ?: "STALLED", gaveUp = true))
                     return@LaunchedEffect
                 }
                 is TileRecovery.Action.Restart -> {

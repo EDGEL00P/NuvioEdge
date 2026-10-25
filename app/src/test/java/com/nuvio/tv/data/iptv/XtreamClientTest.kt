@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.iptv
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -69,5 +70,25 @@ class XtreamClientTest {
         assertEquals(M3uParser.UNCATEGORIZED, channels[1].group)
         assertEquals(null, channels[1].logoUrl)
         assertEquals(null, channels[1].epgId)
+    }
+
+    @Test
+    fun `streams are read one by one, capped, and a cut-off list keeps what arrived`() {
+        val full = (1..5).joinToString(",", "[", "]") { """{"stream_id":$it,"name":"Ch $it"}""" }
+        assertEquals(3, XtreamClient.parseLiveStreams(full.byteInputStream(), source, emptyMap(), maxChannels = 3).size)
+        val cutOff = """[{"stream_id":1,"name":"A"},{"stream_id":2,"name":"B"},{"stream_id":3,"na"""
+        assertEquals(listOf("A", "B"), XtreamClient.parseLiveStreams(cutOff.byteInputStream(), source, emptyMap()).map { it.name })
+        org.junit.Assert.assertThrows(IptvException::class.java) {
+            XtreamClient.parseLiveStreams("""{"user_info":{"auth":0}}""".byteInputStream(), source, emptyMap())
+        }
+    }
+
+    @Test
+    fun `HLS-only accounts get m3u8 stream urls`() {
+        val hlsOnly = XtreamClient.parseAccount("""{"user_info":{"auth":1,"allowed_output_formats":["m3u8"]}}""")
+        assertEquals("m3u8", hlsOnly.liveExtension)
+        assertEquals("ts", XtreamClient.parseAccount("""{"user_info":{"auth":1,"allowed_output_formats":["m3u8","ts"]}}""").liveExtension)
+        assertEquals("ts", XtreamClient.parseAccount("""{"user_info":{"auth":1}}""").liveExtension)
+        assertTrue(XtreamClient.liveStreamUrl(source, "5", "m3u8").endsWith("/5.m3u8"))
     }
 }

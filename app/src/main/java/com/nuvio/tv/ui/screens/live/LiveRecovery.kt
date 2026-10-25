@@ -6,7 +6,9 @@ package com.nuvio.tv.ui.screens.live
  */
 internal class TileRecovery(
     private val failoverAfter: Int = 2,
-    private val maxDelayMs: Long = 30_000
+    private val maxDelayMs: Long = 30_000,
+    /** With no backup, stop after this many restarts: a dead channel shouldn't retry all night. */
+    private val giveUpAfter: Int = 10
 ) {
     var attempts: Int = 0
         private set
@@ -14,6 +16,7 @@ internal class TileRecovery(
     sealed interface Action {
         data class Restart(val delayMs: Long) : Action
         data object Failover : Action
+        data object GiveUp : Action
     }
 
     fun onProblem(hasBackup: Boolean): Action {
@@ -22,6 +25,7 @@ internal class TileRecovery(
             attempts = 0
             return Action.Failover
         }
+        if (attempts > giveUpAfter) return Action.GiveUp
         val delay = (1_000L shl (attempts - 1).coerceAtMost(5)).coerceAtMost(maxDelayMs)
         return Action.Restart(delay)
     }

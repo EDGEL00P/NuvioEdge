@@ -264,6 +264,21 @@ fun PlayerScreen(
             completed
         )
     }
+    // Live TV: change channel inside this player instead of opening a new player screen.
+    DisposableEffect(uiState.contentType) {
+        if (uiState.contentType != com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) return@DisposableEffect onDispose { }
+        val switch: (com.nuvio.tv.data.iptv.IptvChannel) -> Unit = { channel ->
+            viewModel.onEvent(
+                PlayerEvent.OnLiveChannelSelected(com.nuvio.tv.ui.screens.live.liveChannelStream(channel), channel.name)
+            )
+        }
+        com.nuvio.tv.ui.screens.live.LiveZapSession.switcher = switch
+        onDispose {
+            if (com.nuvio.tv.ui.screens.live.LiveZapSession.switcher === switch) {
+                com.nuvio.tv.ui.screens.live.LiveZapSession.switcher = null
+            }
+        }
+    }
     // Live TV: when a stream fails, or stays stuck buffering for 15 s, try another copy of the same
     // channel. With no backup copy nothing changes and the player keeps trying as before.
     LaunchedEffect(uiState.error, uiState.isBuffering) {

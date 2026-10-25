@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -45,7 +46,7 @@ class IptvSourcesStore @Inject constructor(
 
     val sources: Flow<List<IptvSource>> = profileManager.activeProfileId.flatMapLatest { pid ->
         store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { prefs -> readable(prefs, pid) }
-    }
+    }.flowOn(kotlinx.coroutines.Dispatchers.Default) // Keystore calls and JSON decoding, never on the main thread
 
     val favorites: Flow<Set<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
         store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { it[favoritesKey].orEmpty() }
@@ -86,6 +87,13 @@ class IptvSourcesStore @Inject constructor(
             plain.fill(0)
         }
         return Base64.encodeToString(sealed, Base64.NO_WRAP)
+    }
+
+    /** Drops favourites that belonged to a removed source (channel ids start with "sourceId::"). */
+    suspend fun removeFavoritesOf(sourceId: String) {
+        store(profileManager.activeProfileId.value).edit { prefs ->
+            prefs[favoritesKey]?.let { favs -> prefs[favoritesKey] = favs.filterNot { it.startsWith("$sourceId::") }.toSet() }
+        }
     }
 
     suspend fun toggleFavorite(channelId: String) {

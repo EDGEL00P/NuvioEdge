@@ -1802,6 +1802,10 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         is PlayerEvent.OnSourceStreamSelected -> {
             switchToSourceStream(event.stream)
         }
+        is PlayerEvent.OnLiveChannelSelected -> {
+            _uiState.update { it.copy(title = event.channelName, contentName = event.channelName) }
+            switchToSourceStream(event.stream)
+        }
         PlayerEvent.OnDismissTransientOverlay -> {
             _uiState.update {
                 it.copy(

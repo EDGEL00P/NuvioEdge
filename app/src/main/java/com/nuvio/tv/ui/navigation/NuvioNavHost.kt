@@ -916,7 +916,9 @@ private fun PlaybackNavHost(
                     com.nuvio.tv.ui.screens.live.LiveZapSession.navigator = zap
                     onDispose {
                         if (com.nuvio.tv.ui.screens.live.LiveZapSession.navigator === zap) {
+                            // Leaving live playback (not zapping to the next channel).
                             com.nuvio.tv.ui.screens.live.LiveZapSession.navigator = null
+                            com.nuvio.tv.ui.screens.live.LiveZapSession.releaseLists()
                         }
                     }
                 }

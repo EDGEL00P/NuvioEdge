@@ -12,7 +12,7 @@ class IptvSafetyTest {
 
     @Test
     fun `only network stream schemes are allowed`() {
-        listOf("http://a/b.ts", "HTTPS://a/b.m3u8", "rtsp://cam/1", "rtmp://live/x", "udp://@239.0.0.1:1234").forEach {
+        listOf("http://a/b.ts", "HTTPS://a/b.m3u8", "rtsp://cam/1", "udp://@239.0.0.1:1234").forEach {
             assertTrue(it, IptvSafety.isAllowedStream(it))
         }
         listOf(
@@ -66,5 +66,11 @@ class IptvSafetyTest {
         val input = "a\r\n" + "x".repeat(50) + "\nb\rc"
         IptvSafety.forEachLineCapped(input.reader(), maxChars = 10) { lines += it }
         assertEquals(listOf("a", "b", "c"), lines)
+    }
+
+    @Test
+    fun `rtmp is refused and header values are plain ASCII`() {
+        assertFalse(IptvSafety.isAllowedStream("rtmp://live/x"))
+        assertEquals("Mozilla/5.0", IptvSafety.cleanHeaderValue("Mozilla/5.0 \u00e9\u2603"))
     }
 }

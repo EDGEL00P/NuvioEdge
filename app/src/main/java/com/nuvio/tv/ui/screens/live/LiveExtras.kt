@@ -115,7 +115,11 @@ internal fun LiveSearchDialog(
     onDismiss: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    val hits = remember(query, channels, guide, nowMs) { searchLive(query, channels, guide, nowMs) }
+    // Waits for typing to pause, then searches off the main thread (big guides take a moment).
+    val hits by androidx.compose.runtime.produceState(emptyList<LiveSearchHit>(), query, channels, guide, nowMs) {
+        kotlinx.coroutines.delay(250)
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { searchLive(query, channels, guide, nowMs) }
+    }
     NuvioDialog(onDismiss = onDismiss, title = stringResource(R.string.live_search_title), width = 720.dp) {
         InputField(
             value = query,
@@ -159,7 +163,8 @@ internal fun LiveSearchDialog(
 @Composable
 fun LiveNumberEntryOverlay() {
     val typed by LiveZapSession.typedNumber.collectAsStateWithLifecycle()
-    val number = typed ?: return
+    val missing by LiveZapSession.notFound.collectAsStateWithLifecycle()
+    val number = typed ?: missing?.let { stringResource(R.string.live_number_not_found, it) } ?: return
     Box(modifier = Modifier.fillMaxSize().padding(48.dp), contentAlignment = Alignment.TopEnd) {
         Text(
             text = number,

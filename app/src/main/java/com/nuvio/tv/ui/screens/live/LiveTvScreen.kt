@@ -77,6 +77,22 @@ fun LiveTvScreen(
     var showSources by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
 
+    // Guide refresh and the clock only run while this screen is visible.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> viewModel.setVisible(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> viewModel.setVisible(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.setVisible(false)
+        }
+    }
     LiveTvContent(
         state = state,
         tickerOn = tickerOn,
@@ -150,7 +166,7 @@ internal fun LiveTvContent(
                 )
                 Spacer(Modifier.width(NuvioTheme.spacing.md))
             }
-            HeaderButton(Icons.Default.Refresh, stringResource(R.string.live_refresh), enabled = !state.loading, onClick = onRefresh)
+            HeaderButton(Icons.Default.Refresh, stringResource(R.string.live_refresh), enabled = !state.loading && !state.guideLoading, onClick = onRefresh)
             Spacer(Modifier.width(NuvioTheme.spacing.sm))
             HeaderButton(
                 Icons.Default.Star,

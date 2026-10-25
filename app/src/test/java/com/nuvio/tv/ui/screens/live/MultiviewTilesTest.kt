@@ -116,9 +116,10 @@ class MultiviewTilesTest {
         assertEquals(TileRecovery.Action.Restart(1_000), r.onProblem(hasBackup = true))
         assertEquals(TileRecovery.Action.Restart(2_000), r.onProblem(hasBackup = true))
         assertEquals(TileRecovery.Action.Failover, r.onProblem(hasBackup = true))
-        // Without a backup it keeps retrying, capped at 30 s.
-        repeat(10) { r.onProblem(hasBackup = false) }
+        // Without a backup it retries with pauses capped at 30 s, then gives up after 10 restarts.
+        repeat(9) { r.onProblem(hasBackup = false) }
         assertEquals(TileRecovery.Action.Restart(30_000), r.onProblem(hasBackup = false))
+        assertEquals(TileRecovery.Action.GiveUp, r.onProblem(hasBackup = false))
         r.onPlaying()
         assertEquals(TileRecovery.Action.Restart(1_000), r.onProblem(hasBackup = false))
     }

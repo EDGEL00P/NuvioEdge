@@ -11,7 +11,8 @@ import java.io.Reader
  * Supports `tvg-id`, `tvg-name`, `tvg-logo`, `tvg-chno`, `group-title`, the `#EXTGRP:` fallback,
  * `#EXTVLCOPT:http-user-agent=` / `http-referrer=` and the header's `url-tvg` / `x-tvg-url`.
  */
-class M3uParser(private val sourceId: String) {
+/** @param maxChannels stop adding channels after this many (memory limit on small TV boxes). */
+class M3uParser(private val sourceId: String, private val maxChannels: Int = Int.MAX_VALUE) {
 
     private val channels = ArrayList<IptvChannel>()
     private var headerEpgUrl: String? = null
@@ -21,6 +22,7 @@ class M3uParser(private val sourceId: String) {
     private var counter = 0
     private val seen = HashMap<String, Int>()
     private val usedKeys = HashSet<String>()
+    private var truncated = false
 
     fun consumeLine(rawLine: String) {
         val line = rawLine.trim().removePrefix("\uFEFF")
@@ -62,12 +64,14 @@ class M3uParser(private val sourceId: String) {
         return result()
     }
 
-    fun result(): IptvPlaylist = IptvPlaylist(channels.toList(), headerEpgUrl)
+    fun result(): IptvPlaylist = IptvPlaylist(channels.toList(), headerEpgUrl, truncated)
 
     private fun finishEntry(url: String) {
         val name = pendingName
         // Only network streams: a playlist must not point the player at files on the device.
-        if (name != null && IptvSafety.isAllowedStream(url)) {
+        if (name != null && channels.size >= maxChannels && IptvSafety.isAllowedStream(url)) truncated = true
+        // Xtream "m3u_plus" playlists also list films and series; those aren't live channels.
+        if (name != null && IptvSafety.isAllowedStream(url) && !isVodUrl(url) && channels.size < maxChannels) {
             counter++
             val group = attrs["group-title"]?.takeIf { it.isNotBlank() } ?: UNCATEGORIZED
             // Stable across refreshes and reordering (favourites survive), unique for duplicates.
@@ -96,6 +100,10 @@ class M3uParser(private val sourceId: String) {
     }
 
     companion object {
+        private val VOD_PATH = Regex("/(movie|series)/", RegexOption.IGNORE_CASE)
+
+        internal fun isVodUrl(url: String): Boolean = VOD_PATH.containsMatchIn(url.substringBefore('?'))
+
         /** FNV-1a 64-bit of the UTF-8 bytes, as 16 hex digits. Stable across runs and devices. */
         internal fun stableHash(text: String): String {
             var hash = -0x340d631b7bdddcdbL // offset basis 0xcbf29ce484222325

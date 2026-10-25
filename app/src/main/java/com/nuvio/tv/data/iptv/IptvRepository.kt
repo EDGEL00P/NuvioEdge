@@ -8,6 +8,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -73,6 +74,23 @@ class IptvRepository @Inject constructor(
     private val playlists = ConcurrentHashMap<String, Pair<String, IptvPlaylist>>()
     private val playlistLoadedAt = ConcurrentHashMap<String, Long>()
 
+    /** Parsed guides, reused until the downloaded file changes (re-parsing a big guide takes seconds). */
+    private class GuideMemo(val wanted: Int, val parsedAtMs: Long, val result: XmltvResult)
+    private val guides = ConcurrentHashMap<String, GuideMemo>()
+
+    /** Xtream `max_connections` per source id, when the panel reports one. */
+    private val connectionLimits = ConcurrentHashMap<String, Int>()
+    /** Live stream extension per Xtream source ("ts", or "m3u8" for HLS-only accounts). */
+    private val liveExtensions = ConcurrentHashMap<String, String>()
+
+    /** One download or parse per cache entry at a time (Refresh pressed twice, two screens loading). */
+    private val locks = ConcurrentHashMap<String, Any>()
+    private fun lockFor(key: String): Any = locks.computeIfAbsent(key) { Any() }
+
+    /** Channels kept per source: about 1 KB each in memory, so small-heap TV boxes keep fewer. */
+    private val channelCap: Int =
+        if (Runtime.getRuntime().maxMemory() < LOW_HEAP_BYTES) LOW_MEMORY_CHANNEL_CAP else CHANNEL_CAP
+
     val sources: Flow<List<IptvSource>> = store.sources
     val favorites: Flow<Set<String>> = store.favorites
 
@@ -102,15 +120,28 @@ class IptvRepository @Inject constructor(
             password = password,
             epgUrl = epgUrl.trim()
         )
-        // Validate before saving so a typo never gets stored.
-        withContext(Dispatchers.IO) { fetchPlaylist(source, force = true) }
+        // Validate before saving so a typo never gets stored. Interruptible: Cancel stops the download.
+        runInterruptible(Dispatchers.IO) { fetchPlaylist(source, force = true) }
         store.update { it + source }
         return source
     }
 
     suspend fun removeSource(id: String) {
+        val source = store.current().firstOrNull { it.id == id }
+        val guideUrl = source?.let(::guideUrl)
         store.update { list -> list.filterNot { it.id == id } }
+        store.removeFavoritesOf(id)
+        // Its encrypted copies of the playlist and guide are no longer needed.
+        if (source != null) {
+            withContext(Dispatchers.IO) {
+                listOf("m3u|${source.contentKey}", "xc-cats|${source.contentKey}", "xc-streams|${source.contentKey}")
+                    .forEach(cache::delete)
+                guideUrl?.let { cache.delete("epg|${source.contentKey}|$it") }
+            }
+        }
         playlists.remove(id)
+        connectionLimits.remove(id)
+        liveExtensions.remove(id)
     }
 
     suspend fun setSourceEnabled(id: String, enabled: Boolean) {
@@ -121,12 +152,15 @@ class IptvRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             coroutineScope {
                 val results = sources.filter { it.enabled }.map { source ->
-                    async { source to runCatching { fetchPlaylist(source, force) } }
+                    async { source to runInterruptible { runCatching { fetchPlaylist(source, force) } } }
                 }.awaitAll()
                 ChannelLoadResult(
                     channels = results.flatMap { (_, r) -> r.getOrNull()?.channels.orEmpty() },
                     errors = results.mapNotNull { (s, r) ->
                         r.exceptionOrNull()?.let { s.name to userMessage(it) }
+                            ?: r.getOrNull()?.takeIf { it.truncated }?.let {
+                                s.name to "Showing the first ${"%,d".format(channelCap)} channels (limit for this device)"
+                            }
                     }.toMap()
                 )
             }
@@ -141,7 +175,7 @@ class IptvRepository @Inject constructor(
         val bySource = channels.groupBy { it.sourceId }
         coroutineScope {
             sources.filter { it.enabled && bySource.containsKey(it.id) }.map { source ->
-                async { runCatching { guideFor(source, bySource.getValue(source.id), force) }.getOrDefault(emptyMap()) }
+                async { runInterruptible { runCatching { guideFor(source, bySource.getValue(source.id), force) }.getOrDefault(emptyMap()) } }
             }.awaitAll()
         }.fold(HashMap()) { acc, map -> acc.apply { putAll(map) } }
     }
@@ -151,22 +185,40 @@ class IptvRepository @Inject constructor(
         channels: List<IptvChannel>,
         force: Boolean
     ): Map<String, List<EpgProgramme>> {
-        val url = source.epgUrl.ifBlank {
-            playlists[source.id]?.second?.headerEpgUrl?.takeIf(IptvSafety::isWebUrl)
-                ?: if (source.type == IptvSourceType.XTREAM) XtreamClient.xmltvUrl(source) else null
-        } ?: return emptyMap()
+        val url = guideUrl(source) ?: return emptyMap()
         val key = "epg|${source.contentKey}|$url"
-        val parser = XmltvParser(nowMs = System.currentTimeMillis())
+        val now = System.currentTimeMillis()
         val wantedIds = channels.mapNotNullTo(HashSet()) { it.epgId }
         val wantedNames = channels.mapTo(HashSet()) { XmltvParser.normalizeChannelName(it.epgName ?: it.name) }
-        val result = cached(key, GUIDE_MAX_AGE_MS, IptvSafety.MAX_GUIDE_BYTES, force, url) {
-            parser.parse(it, wantedIds, wantedNames)
+        val wanted = 31 * wantedIds.hashCode() + wantedNames.hashCode()
+        val result = synchronized(lockFor(key)) {
+            val changed = refresh(key, GUIDE_MAX_AGE_MS, IptvSafety.MAX_GUIDE_BYTES, force, url)
+            val memo = guides[key]
+            // The parse keeps a 26 h window around "now", so re-parse every couple of hours anyway.
+            if (!changed && memo != null && memo.wanted == wanted && now - memo.parsedAtMs < GUIDE_REPARSE_MS) {
+                memo.result
+            } else {
+                val parsed = cache.read(key) { XmltvParser(nowMs = now).parse(it, wantedIds, wantedNames) }
+                    ?: throw IptvException("Could not read the downloaded guide")
+                guides[key] = GuideMemo(wanted, now, parsed)
+                parsed
+            }
         }
         return channels.mapNotNull { channel ->
             val guideId = channel.epgId?.takeIf { result.programmes.containsKey(it) }
                 ?: result.channelIdsByName[XmltvParser.normalizeChannelName(channel.epgName ?: channel.name)]
             guideId?.let { id -> result.programmes[id]?.let { channel.id to it } }
         }.toMap()
+    }
+
+    private fun guideUrl(source: IptvSource): String? = source.epgUrl.ifBlank {
+        playlists[source.id]?.second?.headerEpgUrl?.takeIf(IptvSafety::isWebUrl)
+            ?: if (source.type == IptvSourceType.XTREAM) XtreamClient.xmltvUrl(source) else null
+    }
+
+    private fun rememberAccount(source: IptvSource, account: XtreamClient.Account) {
+        account.maxConnections?.takeIf { it > 0 }?.let { connectionLimits[source.id] = it }
+        liveExtensions[source.id] = account.liveExtension
     }
 
     private fun fetchPlaylist(source: IptvSource, force: Boolean): IptvPlaylist {
@@ -176,11 +228,15 @@ class IptvRepository @Inject constructor(
         val playlist = when (source.type) {
             IptvSourceType.M3U -> cached(
                 "m3u|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_PLAYLIST_BYTES, force, source.url
-            ) { input -> M3uParser(source.id).parse(input.reader()) }
+            ) { input -> M3uParser(source.id, channelCap).parse(input.reader()) }
             IptvSourceType.XTREAM -> {
                 if (force || cache.ageMs("xc-streams|${source.contentKey}") == null) {
                     // Login check first so a wrong password reads as "Login rejected", not a parse error.
-                    XtreamClient.parseAccount(download(XtreamClient.apiUrl(source).toString()))
+                    rememberAccount(source, XtreamClient.parseAccount(download(XtreamClient.apiUrl(source).toString())))
+                } else if (!liveExtensions.containsKey(source.id)) {
+                    // Cached channels: still learn the account's limits, but never fail on it.
+                    runCatching { XtreamClient.parseAccount(download(XtreamClient.apiUrl(source).toString())) }
+                        .getOrNull()?.let { rememberAccount(source, it) }
                 }
                 val categories = cached(
                     "xc-cats|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_API_BYTES, force,
@@ -189,8 +245,8 @@ class IptvRepository @Inject constructor(
                 val channels = cached(
                     "xc-streams|${source.contentKey}", PLAYLIST_MAX_AGE_MS, IptvSafety.MAX_API_BYTES, force,
                     XtreamClient.apiUrl(source, "get_live_streams").toString()
-                ) { XtreamClient.parseLiveStreams(it.bufferedReader().readText(), source, categories) }
-                IptvPlaylist(channels)
+                ) { XtreamClient.parseLiveStreams(it, source, categories, channelCap, liveExtensions[source.id] ?: "ts") }
+                IptvPlaylist(channels, truncated = channels.size >= channelCap)
             }
         }
         if (playlist.channels.isEmpty()) throw IptvException("No channels found")
@@ -211,18 +267,40 @@ class IptvRepository @Inject constructor(
         url: String,
         parse: (InputStream) -> T
     ): T {
-        val age = cache.ageMs(key)
-        if (!force && age != null && age < maxAgeMs) {
-            runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
+        synchronized(lockFor(key)) {
+            val age = cache.ageMs(key)
+            if (!force && age != null && age < maxAgeMs) {
+                runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
+            }
+            try {
+                downloader.fetch(key, url, maxBytes)
+            } catch (e: IOException) {
+                if (age != null) runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
+                throw IptvException(friendly(e), e)
+            }
+            return cache.read(key, parse) ?: throw IptvException("Could not read the downloaded data")
         }
-        try {
+    }
+
+    /**
+     * Makes sure the cache holds a usable copy of [url]: downloads when stale or [force]d.
+     * @return true when the cached content changed. A failed download with a copy on hand returns false.
+     */
+    private fun refresh(key: String, maxAgeMs: Long, maxBytes: Long, force: Boolean, url: String): Boolean {
+        val age = cache.ageMs(key)
+        if (!force && age != null && age < maxAgeMs) return false
+        return try {
             downloader.fetch(key, url, maxBytes)
         } catch (e: IOException) {
-            if (age != null) runCatching { cache.read(key, parse) }.getOrNull()?.let { return it }
-            throw IptvException(friendly(e), e)
+            if (age != null) false else throw IptvException(friendly(e), e)
         }
-        return cache.read(key, parse) ?: throw IptvException("Could not read the downloaded data")
     }
+
+    /**
+     * Smallest Xtream connection limit among [sourceIds], if any panel reported one. Multiview
+     * never opens more streams than that (most accounts allow 1-2).
+     */
+    fun connectionLimit(sourceIds: Collection<String>): Int? = sourceIds.mapNotNull(connectionLimits::get).minOrNull()
 
     private fun download(url: String): String =
         try {
@@ -262,6 +340,10 @@ class IptvRepository @Inject constructor(
         }
 
         private const val GENERIC_ERROR = "Could not load this source"
+        private const val GUIDE_REPARSE_MS = 2 * 60 * 60 * 1000L
+        private const val LOW_HEAP_BYTES = 512L * 1024 * 1024
+        private const val LOW_MEMORY_CHANNEL_CAP = 50_000
+        private const val CHANNEL_CAP = 250_000
         private const val PLAYLIST_MAX_AGE_MS = 6 * 60 * 60 * 1000L
         // Re-checking is cheap: unchanged files come back as HTTP 304 with no body.
         private const val GUIDE_MAX_AGE_MS = 6 * 60 * 60 * 1000L

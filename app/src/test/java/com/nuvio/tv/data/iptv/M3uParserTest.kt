@@ -1,5 +1,7 @@
 package com.nuvio.tv.data.iptv
 
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -96,5 +98,30 @@ class M3uParserTest {
         assertEquals("cbf29ce484222325", M3uParser.stableHash(""))
         assertEquals("af63dc4c8601ec8c", M3uParser.stableHash("a"))
         assertEquals(16, M3uParser.stableHash("BBC One|BBC One|UK").length)
+    }
+
+    @Test
+    fun `films and series from m3u_plus playlists are skipped`() {
+        val text = """#EXTM3U
+#EXTINF:-1 group-title="News",Live One
+http://host/live/u/p/1.ts
+#EXTINF:-1 group-title="Films",A Film
+http://host/movie/u/p/2.mkv
+#EXTINF:-1 group-title="Shows",An Episode
+http://host/series/u/p/3.mp4
+"""
+        assertEquals(listOf("Live One"), M3uParser("src").parse(text.reader()).channels.map { it.name })
+    }
+
+    @Test
+    fun `channel limit stops adding and says so`() {
+        val text = buildString {
+            append("#EXTM3U\n")
+            repeat(5) { append("#EXTINF:-1,Ch $it\nhttp://host/$it.ts\n") }
+        }
+        val playlist = M3uParser("src", maxChannels = 3).parse(text.reader())
+        assertEquals(3, playlist.channels.size)
+        assertTrue(playlist.truncated)
+        assertFalse(M3uParser("src").parse(text.reader()).truncated)
     }
 }

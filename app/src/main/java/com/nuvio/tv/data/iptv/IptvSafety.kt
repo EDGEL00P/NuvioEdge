@@ -19,7 +19,8 @@ internal object IptvSafety {
      * Schemes the player may open from a playlist. The player's Media3 DefaultDataSource would also
      * open file, asset, content, data and resource URIs on the device, so only network schemes pass.
      */
-    private val STREAM_SCHEMES = setOf("http", "https", "rtsp", "rtmp", "udp")
+    // No rtmp: the bundled player has no RTMP extension, so those channels could never play.
+    private val STREAM_SCHEMES = setOf("http", "https", "rtsp", "udp")
 
     private fun scheme(url: String): String {
         val trimmed = url.trim()
@@ -33,7 +34,8 @@ internal object IptvSafety {
 
     /** Strips control characters (CR/LF would break the request) and caps the length. */
     fun cleanHeaderValue(value: String): String? =
-        value.filter { it >= ' ' && it != '\u007f' }.trim().take(MAX_HEADER_CHARS).ifEmpty { null }
+        // Printable ASCII only: OkHttp rejects other characters in header values.
+        value.filter { it in ' '..'~' }.trim().take(MAX_HEADER_CHARS).ifEmpty { null }
 
     /** True when an https request is redirected to plain http, which would resend the login unencrypted. */
     fun isInsecureRedirect(requestIsHttps: Boolean, location: String?): Boolean =

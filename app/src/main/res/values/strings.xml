@@ -3423,8 +3423,8 @@
     <string name="live_type_xtream">Xtream</string>
     <string name="live_enabled">On</string>
     <string name="live_disabled">Off</string>
-    <string name="live_encrypted">HTTPS</string>
-    <string name="live_not_encrypted">Not encrypted (HTTP)</string>
+    <string name="live_encrypted">HTTPS address</string>
+    <string name="live_not_encrypted">HTTP address (not encrypted)</string>
     <string name="live_source_hint">Select: on/off · Hold: remove</string>
     <string name="live_remove_title">Remove source?</string>
     <string name="live_remove_message">%1$s and its saved login will be deleted from this device.</string>
@@ -3455,12 +3455,15 @@
     <string name="multiview_device_limit">This TV can show up to %1$d at once</string>
     <string name="multiview_reduced">Your TV couldn\'t keep up, so multiview now shows %1$d</string>
     <string name="multiview_tile_recovering">Reconnecting (%1$s)…</string>
+    <string name="multiview_tile_offline">Stream offline. Press OK to pick another channel.</string>
+    <string name="multiview_account_limit">Your IPTV account allows %1$d streams at once</string>
     <string name="live_search">Search</string>
     <string name="live_search_title">Search channels and guide</string>
     <string name="live_search_hint">Team, show or channel</string>
     <string name="live_search_none">Nothing found on your channels.</string>
     <string name="live_search_now">On now · %1$s</string>
     <string name="live_search_at">%1$s · %2$s</string>
+    <string name="live_number_not_found">No channel %1$d</string>
     <string name="live_hint_numbers">Hold Select to add a favourite. While watching: Up/Down or CH+/CH− change channel, OK shows the controls, type a number to jump, Last Channel flips back.</string>
     <string name="live_attribution">Live TV is based on VesperTV by NoXqc (GPL-3.0)</string>
 </resources>

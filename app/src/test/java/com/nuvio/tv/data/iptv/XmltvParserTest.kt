@@ -100,4 +100,33 @@ class XmltvParserTest {
         assertNull(c2)
         assertEquals("A", n2?.title)
     }
+
+    @Test
+    fun `programmes without stop end at the next start, at most 3 hours`() {
+        val guide = """<tv>
+          <programme start="20261024090000 +0000" channel="c"><title>A</title></programme>
+          <programme start="20261024103000 +0000" channel="c"><title>B</title></programme>
+        </tv>"""
+        val list = XmltvParser(nowMs = now).parse(guide.byteInputStream()).programmes.getValue("c")
+        assertEquals(listOf("A", "B"), list.map { it.title })
+        assertEquals(list[1].startMs, list[0].endMs)
+        assertEquals(list[1].startMs + 3 * 60 * 60 * 1000L, list[1].endMs)
+    }
+
+    @Test
+    fun `a broken guide keeps what was read before the error`() {
+        val guide = """<tv>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="c"><title>Kept</title></programme>
+          <programme start="20261024110000 +0000" stop="20261024120000 +0000" channel="c"><title>Bro&ken"""
+        val list = XmltvParser(nowMs = now).parse(guide.byteInputStream()).programmes.getValue("c")
+        assertEquals(listOf("Kept"), list.map { it.title })
+    }
+
+    @Test
+    fun `long descriptions are trimmed`() {
+        val guide = """<tv><programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="c">
+          <title>T</title><desc>${"x".repeat(5_000)}</desc></programme></tv>"""
+        val desc = XmltvParser(nowMs = now).parse(guide.byteInputStream()).programmes.getValue("c").single().description
+        assertEquals(280, desc!!.length)
+    }
 }

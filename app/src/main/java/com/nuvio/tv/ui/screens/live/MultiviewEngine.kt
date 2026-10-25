@@ -38,10 +38,12 @@ internal data class DeviceProfile(
 }
 
 /**
- * How many multiview tiles this device can play. Box spec sheets rarely list decoder limits, so they
- * are read from the hardware: decoders declare a `concurrent-instances` limit and a speed in
- * media_codecs.xml, which Android reports through MediaCodecInfo. The result only ever goes down
- * at runtime ([learnedLimit]) when a TV can't actually keep up.
+ * How many multiview tiles this device can play. Three limits, the lowest wins:
+ *  - decoder count and speed as the device declares them (MediaCodecInfo). Many devices leave the
+ *    count at Android's default of 32 and declare speed as the codec standard's limit, so this
+ *    rarely decides on its own;
+ *  - total RAM and the low-RAM flag, which usually decide;
+ *  - [learnedLimit], lowered for the session when the TV runs out of decoders or drops frames.
  */
 internal object DecoderBudget {
     const val MAX_TILES = 6

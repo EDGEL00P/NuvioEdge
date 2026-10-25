@@ -54,14 +54,29 @@ class XmltvParser(
             "http://xml.org/sax/features/external-parameter-entities",
             "http://apache.org/xml/features/nonvalidating/load-external-dtd"
         ).forEach { feature -> runCatching { factory.setFeature(feature, false) } }
-        val parser = factory.newSAXParser()
-        runCatching { parser.xmlReader.setEntityResolver { _, _ -> InputSource(java.io.StringReader("")) } }
-        parser.parse(InputSource(maybeGunzip(input)), handler)
+        // Parse through the XMLReader: SAXParser.parse(source, handler) would replace this resolver.
+        val reader = factory.newSAXParser().xmlReader.apply {
+            contentHandler = handler
+            errorHandler = handler
+            entityResolver = org.xml.sax.EntityResolver { _, _ -> InputSource(java.io.StringReader("")) }
+        }
+        try {
+            reader.parse(InputSource(maybeGunzip(input)))
+        } catch (e: org.xml.sax.SAXParseException) {
+            // A bad character or a cut-off download: keep everything read before it.
+        }
         return XmltvResult(
-            programmes = handler.programmes.mapValues { (_, list) -> list.sortedBy { it.startMs } },
+            programmes = handler.programmes.mapValues { (_, list) -> fillMissingStops(list.sortedBy { it.startMs }) },
             channelIdsByName = handler.namesToIds
         )
     }
+
+    /** `stop` is optional in XMLTV: a programme without one ends when the next starts (at most 3 h). */
+    private fun fillMissingStops(sorted: List<EpgProgramme>): List<EpgProgramme> =
+        sorted.mapIndexed { i, p ->
+            if (p.endMs != UNKNOWN_STOP) p
+            else p.copy(endMs = minOf(sorted.getOrNull(i + 1)?.startMs ?: Long.MAX_VALUE, p.startMs + DEFAULT_LENGTH_MS))
+        }
 
     private class Handler(
         private val windowStart: Long,
@@ -90,12 +105,13 @@ class XmltvParser(
                     val start = parseXmltvTime(attributes.getValue("start"))
                     val stop = parseXmltvTime(attributes.getValue("stop"))
                     val channel = attributes.getValue("channel")?.trim()
-                    progChannel = if (channel != null && start != null && stop != null &&
-                        stop > windowStart && start < windowEnd &&
+                    val latestEnd = stop ?: start?.plus(DEFAULT_LENGTH_MS)
+                    progChannel = if (channel != null && start != null && latestEnd != null &&
+                        latestEnd > windowStart && start < windowEnd &&
                         (keepAll || channel in wantedIds)
                     ) channel else null
                     progStart = start ?: 0L
-                    progEnd = stop ?: 0L
+                    progEnd = stop ?: UNKNOWN_STOP
                     progTitle = null
                     progDesc = null
                 }
@@ -123,7 +139,7 @@ class XmltvParser(
                 }
                 "channel" -> channelId = null
                 "title" -> if (capturing) progTitle = endCapture()
-                "desc" -> if (capturing) progDesc = endCapture()
+                "desc" -> if (capturing) progDesc = endCapture().take(MAX_DESC_CHARS)
                 "programme" -> {
                     val channel = progChannel
                     if (channel != null) {
@@ -197,6 +213,11 @@ class XmltvParser(
             val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
             return era * 146_097L + doe - 719_468L
         }
+
+        private const val UNKNOWN_STOP = Long.MIN_VALUE
+        private const val DEFAULT_LENGTH_MS = 3 * 60 * 60 * 1000L
+        /** Enough for a guide preview line; full 4K-character descriptions cost too much memory on TV boxes. */
+        private const val MAX_DESC_CHARS = 280
 
         private val QUALITY_SUFFIX = Regex("(fhd|uhd|hd|sd|4k|hevc)$")
         private val BRACKETED = Regex("""\(.*?\)|\[.*?]""")

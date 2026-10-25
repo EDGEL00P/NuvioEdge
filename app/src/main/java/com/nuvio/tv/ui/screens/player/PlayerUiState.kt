@@ -358,6 +358,8 @@ sealed class PlayerEvent {
     data object OnReloadSourceStreams : PlayerEvent()
     data class OnSourceAddonFilterSelected(val addonName: String?) : PlayerEvent()
     data class OnSourceStreamSelected(val stream: Stream) : PlayerEvent()
+    /** Live TV channel change inside the running player: new title, then a normal stream switch. */
+    data class OnLiveChannelSelected(val stream: Stream, val channelName: String) : PlayerEvent()
     data object OnDismissTransientOverlay : PlayerEvent()
     data object OnRetry : PlayerEvent()
     data object OnReportPlaybackIssue : PlayerEvent()

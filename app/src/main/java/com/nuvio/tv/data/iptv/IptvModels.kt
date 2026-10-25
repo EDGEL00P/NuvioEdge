@@ -61,7 +61,9 @@ data class IptvChannel(
 data class IptvPlaylist(
     val channels: List<IptvChannel>,
     /** Guide URL announced in the playlist header (url-tvg / x-tvg-url), if any. */
-    val headerEpgUrl: String? = null
+    val headerEpgUrl: String? = null,
+    /** True when the source had more channels than this device keeps (see the channel limit). */
+    val truncated: Boolean = false
 )
 
 data class EpgProgramme(

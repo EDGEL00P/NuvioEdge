@@ -57,6 +57,11 @@ class LiveTvViewModel @Inject constructor(
     val addState: StateFlow<AddSourceState> = _addState.asStateFlow()
 
     private var loadJob: Job? = null
+    private var addJob: Job? = null
+
+    /** True while the Live TV screen is on screen; the background refresh only runs then. */
+    private val visible = MutableStateFlow(false)
+    private var lastLoadMs = 0L
 
     init {
         viewModelScope.launch(liveErrors) {
@@ -73,17 +78,27 @@ class LiveTvViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(liveErrors) {
-            var ticks = 0
             while (isActive) {
                 delay(30_000)
-                _uiState.update { it.copy(nowMs = System.currentTimeMillis()) }
-                // Every 30 minutes re-check sources; stale playlists and guides are re-validated with the server.
-                if (++ticks % 60 == 0 && !_uiState.value.loading) load(force = false)
+                if (visible.value) onClockTick()
             }
         }
     }
 
     fun refresh() = load(force = true)
+
+    /** Called by the screen on start/stop: no guide work while the player or another screen is up. */
+    fun setVisible(isVisible: Boolean) {
+        visible.value = isVisible
+        if (isVisible) onClockTick()
+    }
+
+    /** Moves "now" on, and every 30 minutes re-checks sources (unchanged files come back as HTTP 304). */
+    private fun onClockTick() {
+        val now = System.currentTimeMillis()
+        _uiState.update { it.copy(nowMs = now) }
+        if (lastLoadMs != 0L && now - lastLoadMs >= REFRESH_EVERY_MS && !_uiState.value.loading) load(force = false)
+    }
 
     private fun load(force: Boolean) {
         loadJob?.cancel()
@@ -92,7 +107,9 @@ class LiveTvViewModel @Inject constructor(
             _uiState.update { it.copy(allChannels = emptyList(), guide = emptyMap(), errors = emptyMap(), loading = false).withGroups() }
             return
         }
+        lastLoadMs = System.currentTimeMillis()
         loadJob = viewModelScope.launch(liveErrors) {
+            val job = coroutineContext[Job]
             _uiState.update { it.copy(loading = true) }
             try {
                 val result = repository.loadChannels(sources, force)
@@ -103,8 +120,8 @@ class LiveTvViewModel @Inject constructor(
                 val guide = repository.loadGuide(sources, result.channels, force)
                 _uiState.update { it.copy(guide = guide, nowMs = System.currentTimeMillis()) }
             } finally {
-                // Never leave a spinner up, whatever happened.
-                _uiState.update { it.copy(loading = false, guideLoading = false) }
+                // Never leave a spinner up; a load replaced by a newer one leaves the newer one's alone.
+                if (loadJob === job) _uiState.update { it.copy(loading = false, guideLoading = false) }
             }
         }
     }
@@ -135,15 +152,25 @@ class LiveTvViewModel @Inject constructor(
         onDone: () -> Unit
     ) {
         if (_addState.value.saving) return
-        viewModelScope.launch(liveErrors) {
+        addJob = viewModelScope.launch(liveErrors) {
             _addState.value = AddSourceState(saving = true)
-            runCatching { repository.addSource(name, type, url, username, password, epgUrl) }
-                .onSuccess {
-                    _addState.value = AddSourceState()
-                    onDone()
-                }
-                .onFailure { e -> _addState.value = AddSourceState(error = IptvRepository.userMessage(e)) }
+            try {
+                repository.addSource(name, type, url, username, password, epgUrl)
+                _addState.value = AddSourceState()
+                onDone()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _addState.value = AddSourceState(error = IptvRepository.userMessage(e))
+            }
         }
+    }
+
+    /** Stops checking a new source (Cancel or Back while it downloads). */
+    fun cancelAdd() {
+        addJob?.cancel()
+        addJob = null
+        _addState.value = AddSourceState()
     }
 
     /** Remembers the list the user is zapping through so CH+/CH- in the player can move along it. */
@@ -166,6 +193,7 @@ class LiveTvViewModel @Inject constructor(
     }
 
     companion object {
+        private const val REFRESH_EVERY_MS = 30 * 60 * 1000L
         const val GROUP_ALL = "\u0001all"
         const val GROUP_FAVORITES = "\u0001favorites"
     }
@@ -193,9 +221,19 @@ object LiveZapSession {
     val typedNumber: StateFlow<String?> = _typedNumber.asStateFlow()
     private val handler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
     private val digitToken = Any()
+    private val notFoundToken = Any()
 
     /** Set by the live player destination while it is on screen; opens a channel in its place. */
     @Volatile var navigator: ((IptvChannel) -> Unit)? = null
+
+    /** Set by the live player itself: switches the stream in place (faster than a new player screen). */
+    @Volatile var switcher: ((IptvChannel) -> Unit)? = null
+
+    private val opener: ((IptvChannel) -> Unit)? get() = switcher ?: navigator
+
+    private val _notFound = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+    /** A typed channel number that matched nothing, shown briefly. */
+    val notFound: StateFlow<Int?> = _notFound.asStateFlow()
 
     fun start(
         list: List<IptvChannel>,
@@ -204,7 +242,8 @@ object LiveZapSession {
         allChannels: List<IptvChannel> = list
     ) {
         if (current != null && current?.id != channel.id) previous = current
-        channels = list
+        // Played from search or another group: CH+/CH- then move through all channels.
+        channels = if (list.any { it.id == channel.id }) list else allChannels
         val listChanged = all !== allChannels || backups?.isFor(allChannels) != true
         all = allChannels
         if (listChanged) {
@@ -215,7 +254,7 @@ object LiveZapSession {
             }
         }
         guide = guideMap
-        index = list.indexOfFirst { it.id == channel.id }
+        index = channels.indexOfFirst { it.id == channel.id }
         current = channel
         LiveStreamGuard.protect(channel.streamUrl)
         tried.clear()
@@ -235,13 +274,21 @@ object LiveZapSession {
 
     /** CH+/CH- from the player. Returns true when the key was handled. */
     fun zap(forward: Boolean): Boolean {
-        if (navigator == null) return false
+        if (opener == null) return false
         val channel = step(forward) ?: return false
         return open(channel)
     }
 
+    /** Channel [number] by its playlist number; playlists without numbers count channels in order. */
     fun jumpToNumber(number: Int): Boolean {
-        val channel = all.firstOrNull { it.number == number } ?: return false
+        val list = all
+        val channel = if (list.any { it.number != null }) list.firstOrNull { it.number == number }
+        else list.getOrNull(number - 1)
+        if (channel == null) {
+            _notFound.value = number
+            handler.postAtTime({ _notFound.value = null }, notFoundToken, android.os.SystemClock.uptimeMillis() + 2_000)
+            return false
+        }
         return open(channel)
     }
 
@@ -250,7 +297,7 @@ object LiveZapSession {
 
     /** Called when playback fails: switches to an untried copy of the same channel, if there is one. */
     fun failover(): Boolean {
-        val go = navigator ?: return false
+        val go = opener ?: return false
         val failed = current ?: return false
         tried += failed.id
         // Index still building (just opened a huge playlist): no backup yet, the caller reconnects instead.
@@ -268,7 +315,7 @@ object LiveZapSession {
      */
     fun recover(nowMs: Long = android.os.SystemClock.elapsedRealtime()): Boolean {
         if (failover()) return true
-        val go = navigator ?: return false
+        val go = opener ?: return false
         val channel = current ?: return false
         if (!reconnects.tryAcquire(nowMs)) return false
         go(channel)
@@ -277,7 +324,7 @@ object LiveZapSession {
 
     /** A digit pressed during live playback; the channel opens 1.5 s after the last digit. */
     fun onDigit(digit: Int): Boolean {
-        if (navigator == null) return false
+        if (opener == null) return false
         _typedNumber.value = ((_typedNumber.value ?: "") + digit).takeLast(4)
         handler.removeCallbacksAndMessages(digitToken)
         handler.postAtTime({
@@ -292,7 +339,7 @@ object LiveZapSession {
         IptvRepository.nowAndNext(guide[channel.id], nowMs).first?.title?.takeIf { it.isNotBlank() }
 
     private fun open(channel: IptvChannel): Boolean {
-        val go = navigator ?: return false
+        val go = opener ?: return false
         if (current?.id != channel.id) previous = current
         current = channel
         LiveStreamGuard.protect(channel.streamUrl)
@@ -301,6 +348,15 @@ object LiveZapSession {
         reconnects.reset()
         go(channel)
         return true
+    }
+
+    /** Live playback ended: drop the channel lists and guide (they can be large), keep the last channel. */
+    fun releaseLists() {
+        channels = emptyList()
+        all = emptyList()
+        guide = emptyMap()
+        backups = null
+        index = -1
     }
 
     fun clear() {
@@ -329,4 +385,27 @@ fun liveChannelPlayerRoute(channel: IptvChannel, nowTitle: String?): String =
         logo = channel.logoUrl,
         addonName = "Live TV",
         startFromBeginning = true
+    )
+
+/** A live channel as a player stream, for switching channels inside the running player. */
+fun liveChannelStream(channel: IptvChannel): com.nuvio.tv.domain.model.Stream =
+    com.nuvio.tv.domain.model.Stream(
+        name = LiveZapSession.nowTitle(channel) ?: channel.name,
+        title = channel.name,
+        description = null,
+        url = channel.streamUrl,
+        ytId = null,
+        infoHash = null,
+        fileIdx = null,
+        externalUrl = null,
+        behaviorHints = channel.headers.takeIf { it.isNotEmpty() }?.let { headers ->
+            com.nuvio.tv.domain.model.StreamBehaviorHints(
+                notWebReady = null,
+                bingeGroup = null,
+                countryWhitelist = null,
+                proxyHeaders = com.nuvio.tv.domain.model.ProxyHeaders(request = headers, response = null)
+            )
+        },
+        addonName = "Live TV",
+        addonLogo = channel.logoUrl
     )

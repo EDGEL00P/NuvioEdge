@@ -4,6 +4,7 @@ import io.sentry.Breadcrumb
 import io.sentry.Sentry
 import io.sentry.SentryLevel
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
@@ -60,11 +61,12 @@ class SentryNetworkBreadcrumbInterceptor : Interceptor {
         breadcrumb.setCategory("http.client")
         breadcrumb.setLevel(levelFor(statusCode, error))
         breadcrumb.setData("host", url.host)
-        breadcrumb.setData("path", url.encodedPath)
+        breadcrumb.setData("path", scrubbedUrl(url).toHttpUrlOrNull()?.encodedPath ?: "")
         breadcrumb.setData("elapsed_ms", elapsedMs)
         if (error != null) {
             breadcrumb.setData("error_type", error.javaClass.name)
-            error.message?.let { breadcrumb.setData("error_message", it.take(240)) }
+            // Exception messages can quote the request URL, login included.
+            error.message?.let { breadcrumb.setData("error_message", it.replace(URL_IN_TEXT, "<url>").take(240)) }
         }
         Sentry.addBreadcrumb(breadcrumb)
     }
@@ -79,7 +81,7 @@ class SentryNetworkBreadcrumbInterceptor : Interceptor {
         }
     }
 
-    private fun scrubbedUrl(url: HttpUrl): String {
+    internal fun scrubbedUrl(url: HttpUrl): String {
         val builder = url.newBuilder()
             .query(null)
             .fragment(null)
@@ -87,12 +89,17 @@ class SentryNetworkBreadcrumbInterceptor : Interceptor {
         val segments = url.pathSegments
         if (segments.size >= 4 && segments[0].lowercase() in XTREAM_PATH_PREFIXES) {
             builder.setPathSegment(1, "redacted").setPathSegment(2, "redacted")
+        } else if (segments.size == 3 && XTREAM_SHORT_ID.matches(segments[2])) {
+            // Short Xtream form: /<user>/<pass>/<id>.ts
+            builder.setPathSegment(0, "redacted").setPathSegment(1, "redacted")
         }
         return builder.build().toString()
     }
 
     private companion object {
         val XTREAM_PATH_PREFIXES = setOf("live", "movie", "series", "timeshift")
+        val XTREAM_SHORT_ID = Regex("""\d+(\.\w{1,5})?""")
+        val URL_IN_TEXT = Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://\S+""")
     }
 
     private fun elapsedMs(startedAtNs: Long): Long {

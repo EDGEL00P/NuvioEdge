@@ -196,9 +196,18 @@ class IptvFileCache(
     private val dir: File,
     private val keyProvider: () -> SecretKey
 ) {
-    private fun fileName(key: String): String {
+    /** Separate keys for file names and for encryption, both derived from the cache key. */
+    private fun subkey(label: String, algorithm: String): SecretKey {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(keyProvider().encoded, "HmacSHA256"))
+        return SecretKeySpec(mac.doFinal(label.toByteArray()), algorithm)
+    }
+
+    private fun encryptionKey(): SecretKey = subkey("nuvio-live/cache/encrypt/v1", "AES")
+
+    private fun fileName(key: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(subkey("nuvio-live/cache/names/v1", "HmacSHA256"))
         return mac.doFinal(key.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
@@ -214,9 +223,10 @@ class IptvFileCache(
         dir.mkdirs()
         val name = fileName(key)
         val target = File(dir, "$name.enc")
-        val tmp = File(dir, "$name.tmp")
+        // Unique temp file: two writers of the same entry must not interleave into one file.
+        val tmp = File.createTempFile(name.take(16), ".tmp", dir)
         try {
-            SegmentedAesGcm.encryptingStream(tmp.outputStream().buffered(), keyProvider(), name.toByteArray())
+            SegmentedAesGcm.encryptingStream(tmp.outputStream().buffered(), encryptionKey(), name.toByteArray())
                 .use(block)
             if (!tmp.renameTo(target)) throw IOException("Could not store cache entry")
         } finally {
@@ -230,7 +240,7 @@ class IptvFileCache(
         val file = File(dir, "$name.enc")
         if (!file.exists()) return null
         return try {
-            SegmentedAesGcm.decryptingStream(file.inputStream().buffered(), keyProvider(), name.toByteArray())
+            SegmentedAesGcm.decryptingStream(file.inputStream().buffered(), encryptionKey(), name.toByteArray())
         } catch (e: IOException) {
             file.delete()
             null
@@ -245,6 +255,12 @@ class IptvFileCache(
             fileFor(key).delete()
             throw e
         }
+    }
+
+    /** Removes an entry and its saved server validators. */
+    fun delete(key: String) {
+        fileFor(key).delete()
+        fileFor(META_PREFIX + key).delete()
     }
 
     /** Marks an entry fresh again (the server said it hasn't changed). */

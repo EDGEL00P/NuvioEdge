@@ -142,7 +142,7 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
     LaunchedEffect(Unit) { viewModel.resetAddState() }
 
     NuvioDialog(
-        onDismiss = { if (!addState.saving) onDone() },
+        onDismiss = { viewModel.cancelAdd(); onDone() },
         title = stringResource(if (isXtream) R.string.live_add_xtream else R.string.live_add_m3u),
         subtitle = stringResource(R.string.live_add_subtitle),
         width = 640.dp
@@ -205,7 +205,9 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        if (IptvSource.isCleartext(url) || IptvSource.isCleartext(epgUrl)) {
+        // Xtream addresses typed without a scheme become http://, so warn for those too.
+        val effectiveUrl = if (isXtream && url.isNotBlank()) com.nuvio.tv.data.iptv.XtreamClient.normalizeServer(url) else url
+        if (IptvSource.isCleartext(effectiveUrl) || IptvSource.isCleartext(epgUrl)) {
             Text(
                 text = stringResource(R.string.live_http_warning),
                 style = MaterialTheme.typography.bodySmall,
@@ -217,7 +219,7 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
         }
         }
         SettingsDialogActionRow {
-            SettingsDialogActionButton(stringResource(R.string.action_cancel), onClick = onDone, enabled = !addState.saving)
+            SettingsDialogActionButton(stringResource(R.string.action_cancel), onClick = { viewModel.cancelAdd(); onDone() })
             SettingsDialogActionButton(
                 text = stringResource(if (addState.saving) R.string.live_checking else R.string.live_save),
                 onClick = save,
