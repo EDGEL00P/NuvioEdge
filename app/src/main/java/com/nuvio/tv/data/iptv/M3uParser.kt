@@ -20,6 +20,7 @@ class M3uParser(private val sourceId: String) {
     private var pendingHeaders: MutableMap<String, String> = HashMap()
     private var counter = 0
     private val seen = HashMap<String, Int>()
+    private val usedKeys = HashSet<String>()
 
     fun consumeLine(rawLine: String) {
         val line = rawLine.trim().removePrefix("\uFEFF")
@@ -72,7 +73,10 @@ class M3uParser(private val sourceId: String) {
             // Stable across refreshes and reordering (favourites survive), unique for duplicates.
             val base = "${attrs["tvg-id"].orEmpty()}|$name|$group"
             val occurrence = seen.merge(base, 1, Int::plus) ?: 1
-            val stableKey = "%08x".format(base.hashCode()) + if (occurrence > 1) "-$occurrence" else ""
+            // 64-bit hash: a 32-bit one collides in ~25% of 50k-channel playlists (shared favourites,
+            // duplicate list keys). The loop keeps ids unique even if two names ever hash alike.
+            var stableKey = stableHash(base) + if (occurrence > 1) "-$occurrence" else ""
+            while (!usedKeys.add(stableKey)) stableKey += "~"
             channels += IptvChannel(
                 id = "$sourceId::$stableKey",
                 sourceId = sourceId,
@@ -92,6 +96,15 @@ class M3uParser(private val sourceId: String) {
     }
 
     companion object {
+        /** FNV-1a 64-bit of the UTF-8 bytes, as 16 hex digits. Stable across runs and devices. */
+        internal fun stableHash(text: String): String {
+            var hash = -0x340d631b7bdddcdbL // offset basis 0xcbf29ce484222325
+            for (byte in text.toByteArray(Charsets.UTF_8)) {
+                hash = (hash xor (byte.toLong() and 0xff)) * 0x100000001b3L
+            }
+            return java.lang.Long.toHexString(hash).padStart(16, '0')
+        }
+
         const val UNCATEGORIZED = "Uncategorized"
         private val ATTR_PATTERN = Regex("""([a-zA-Z0-9_-]+)="([^"]*)"""")
 

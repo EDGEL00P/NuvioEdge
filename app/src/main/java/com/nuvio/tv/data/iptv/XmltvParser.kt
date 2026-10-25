@@ -199,11 +199,12 @@ class XmltvParser(
         }
 
         private val QUALITY_SUFFIX = Regex("(fhd|uhd|hd|sd|4k|hevc)$")
+        private val BRACKETED = Regex("""\(.*?\)|\[.*?]""")
 
         /** "BBC One HD" / "bbc.one" / "BBC ONE (UK)" all normalise close to "bbcone". */
         fun normalizeChannelName(name: String): String {
             val cleaned = name.lowercase()
-                .replace(Regex("""\(.*?\)|\[.*?]"""), "")
+                .replace(BRACKETED, "")
                 .filter { it.isLetterOrDigit() }
             return cleaned.replace(QUALITY_SUFFIX, "").ifEmpty { cleaned }
         }

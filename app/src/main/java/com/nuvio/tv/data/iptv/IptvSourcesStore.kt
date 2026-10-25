@@ -2,6 +2,7 @@ package com.nuvio.tv.data.iptv
 
 import android.util.Base64
 import android.util.Log
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -34,6 +35,8 @@ class IptvSourcesStore @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val listSerializer = ListSerializer(IptvSource.serializer())
     private val sourcesKey = stringPreferencesKey("sources_sealed_v1")
+    /** A saved list that couldn't be decrypted when it was about to be replaced; kept for recovery. */
+    private val parkedKey = stringPreferencesKey("sources_sealed_v1_unreadable")
     private val favoritesKey = stringSetPreferencesKey("favorite_channel_ids")
 
     private fun store(profileId: Int) = factory.get(profileId, FEATURE)
@@ -41,7 +44,7 @@ class IptvSourcesStore @Inject constructor(
     private fun purpose(profileId: Int) = "nuvio-live/sources/v1/profile:$profileId"
 
     val sources: Flow<List<IptvSource>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { prefs -> prefs[sourcesKey]?.let { unseal(it, pid) }.orEmpty() }
+        store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { prefs -> readable(prefs, pid) }
     }
 
     val favorites: Flow<Set<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
@@ -50,15 +53,39 @@ class IptvSourcesStore @Inject constructor(
 
     suspend fun current(): List<IptvSource> = sources.first()
 
-    suspend fun save(list: List<IptvSource>) {
+    /** Saved sources that can be decrypted now, including a parked list once it becomes readable. */
+    private fun readable(prefs: Preferences, pid: Int): List<IptvSource> =
+        (prefs[sourcesKey]?.let { unseal(it, pid) }.orEmpty() + prefs[parkedKey]?.let { unseal(it, pid) }.orEmpty())
+            .distinctBy { it.id }
+
+    /**
+     * Changes the saved sources in one DataStore transaction (read and write together, so a
+     * failed read aborts instead of saving over the list). If the saved list exists but can't be
+     * decrypted right now (a Keystore hiccup), it is parked rather than overwritten, and merged
+     * back as soon as it decrypts again.
+     */
+    suspend fun update(transform: (List<IptvSource>) -> List<IptvSource>) {
         val pid = profileManager.activeProfileId.value
+        store(pid).edit { prefs ->
+            val saved = prefs[sourcesKey]
+            val current = saved?.let { unseal(it, pid) }
+            val parked = prefs[parkedKey]
+            val parkedList = parked?.let { unseal(it, pid) }
+            if (saved != null && current == null && parked == null) prefs[parkedKey] = saved
+            if (parkedList != null) prefs.remove(parkedKey)
+            val base = (current.orEmpty() + parkedList.orEmpty()).distinctBy { it.id }
+            prefs[sourcesKey] = seal(transform(base), pid)
+        }
+    }
+
+    private fun seal(list: List<IptvSource>, pid: Int): String {
         val plain = json.encodeToString(listSerializer, list).toByteArray()
         val sealed = try {
             vault.seal(plain, purpose(pid))
         } finally {
             plain.fill(0)
         }
-        store(pid).edit { it[sourcesKey] = Base64.encodeToString(sealed, Base64.NO_WRAP) }
+        return Base64.encodeToString(sealed, Base64.NO_WRAP)
     }
 
     suspend fun toggleFavorite(channelId: String) {

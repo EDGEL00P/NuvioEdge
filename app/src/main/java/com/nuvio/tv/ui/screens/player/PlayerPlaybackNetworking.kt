@@ -61,6 +61,7 @@ internal object PlayerPlaybackNetworking {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .addNetworkInterceptor(com.nuvio.tv.data.iptv.LiveStreamGuard.redirectGuard())
             .build()
     }
 
@@ -91,10 +92,14 @@ internal object PlayerPlaybackNetworking {
                 try {
                     chain.proceed(request)
                 } catch (e: SSLException) {
+                    // IPTV stream URLs carry the login: never resend them without certificate checks.
+                    if (com.nuvio.tv.data.iptv.LiveStreamGuard.isProtected(request.url.host)) throw e
                     // Fallback to trust-all client if standard system SSL fails (e.g. self-signed local server)
                     trustAllPlaybackHttpClient.newCall(request).execute()
                 }
             }
+            // IPTV servers: refuse https -> http redirects (the login would travel in clear text).
+            .addNetworkInterceptor(com.nuvio.tv.data.iptv.LiveStreamGuard.redirectGuard())
             .build()
     }
 

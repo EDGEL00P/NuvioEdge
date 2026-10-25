@@ -40,7 +40,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
@@ -69,6 +72,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.data.iptv.IptvChannel
 import com.nuvio.tv.data.iptv.IptvRepository
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.screens.player.PlayerMediaSourceFactory
 import com.nuvio.tv.ui.theme.NuvioTheme
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -125,6 +129,13 @@ class MultiviewViewModel @Inject constructor(
     /** Stream client shared by the tile players: no disk cache, logging or crash breadcrumbs. */
     val streamClient: OkHttpClient get() = repository.streamClient
 
+    /** Built off the main thread once the channels arrive; null until then. */
+    @Volatile
+    private var backups: BackupIndex? = null
+
+    /** A backup copy of [channel], looked up only when a tile actually fails. */
+    fun backupFor(channel: IptvChannel): IptvChannel? = backups?.copiesOf(channel)?.firstOrNull()
+
     init {
         viewModelScope.launch(liveErrors) {
             try {
@@ -141,6 +152,7 @@ class MultiviewViewModel @Inject constructor(
                     tileCount = DecoderBudget.bestOption(minOf(4, maxTiles)),
                     lowMemory = profile.lowRamDevice || profile.smallHeap
                 )
+                backups = withContext(Dispatchers.Default) { BackupIndex(channels) }
             } finally {
                 _state.update { it.copy(loading = false) }
             }
@@ -189,6 +201,22 @@ fun MultiviewScreen(
     val firstTile = remember { FocusRequester() }
     val playing = remember { HashMap<Int, Boolean>() } // read only in callbacks, never in composition
 
+    // Stop every tile when the app leaves the screen (Home, screensaver, another app): otherwise
+    // 2-6 streams keep downloading and decoding, with sound, behind the launcher.
+    var inForeground by remember { mutableStateOf(true) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> inForeground = true
+                Lifecycle.Event.ON_STOP -> inForeground = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(state.loading) { if (!state.loading) runCatching { firstTile.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(8.dp)) {
@@ -206,13 +234,14 @@ fun MultiviewScreen(
                         val channel = state.tiles[index]
                         Tile(
                             channel = channel,
+                            active = inForeground,
                             settings = TileSettings(
                                 hasAudio = index == focused,
                                 tileCount = state.tileCount,
                                 startDelayMs = index * TILE_START_GAP_MS,
                                 lowMemory = state.lowMemory
                             ),
-                            backup = channel?.let { backupCopies(it, state.channels).firstOrNull() },
+                            findBackup = { channel?.let(viewModel::backupFor) },
                             streamClient = viewModel.streamClient,
                             onFocused = { focused = index },
                             onPick = { picking = index },
@@ -288,8 +317,9 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
 @Composable
 private fun Tile(
     channel: IptvChannel?,
+    active: Boolean,
     settings: TileSettings,
-    backup: IptvChannel?,
+    findBackup: () -> IptvChannel?,
     streamClient: OkHttpClient,
     onFocused: () -> Unit,
     onPick: () -> Unit,
@@ -318,7 +348,7 @@ private fun Tile(
             if (channel == null) {
                 Text(stringResource(R.string.multiview_empty_tile), color = Color(0xFF94A3B8))
             } else {
-                TilePlayer(channel, settings, backup, streamClient, events) { status = it }
+                if (active) TilePlayer(channel, settings, findBackup, streamClient, events) { status = it }
                 Text(
                     text = channel.name,
                     color = Color.White,
@@ -357,7 +387,7 @@ private fun PlaybackException.isDecoderLimit(): Boolean =
 private fun TilePlayer(
     channel: IptvChannel,
     settings: TileSettings,
-    backup: IptvChannel?,
+    findBackup: () -> IptvChannel?,
     streamClient: OkHttpClient,
     events: TileEvents,
     onStatus: (String?) -> Unit
@@ -365,7 +395,7 @@ private fun TilePlayer(
     val context = LocalContext.current
     val player = remember(channel.id) { buildTilePlayer(context, channel, streamClient, settings.lowMemory) }
     val currentEvents by rememberUpdatedState(events)
-    val currentBackup by rememberUpdatedState(backup)
+    val currentFindBackup by rememberUpdatedState(findBackup)
     DisposableEffect(player) {
         onDispose {
             currentEvents.onPlaying(false)
@@ -426,9 +456,10 @@ private fun TilePlayer(
             stuckForMs = 0L
             onStatus(error?.errorCodeName ?: "STALLED")
             if (error?.isDecoderLimit() == true) currentEvents.onDecoderLimit()
-            when (val action = recovery.onProblem(hasBackup = currentBackup != null)) {
+            val backup = currentFindBackup()
+            when (val action = recovery.onProblem(hasBackup = backup != null)) {
                 TileRecovery.Action.Failover -> {
-                    currentBackup?.let(currentEvents.onFailover)
+                    backup?.let(currentEvents.onFailover)
                     return@LaunchedEffect
                 }
                 is TileRecovery.Action.Restart -> {
@@ -436,6 +467,9 @@ private fun TilePlayer(
                     lastDropped = 0
                     lastRendered = 0
                     overload.reset()
+                    // prepare() does nothing unless the player is idle, and a seek to the current
+                    // position is dropped, so a tile stuck buffering needs stop() first.
+                    player.stop()
                     player.seekToDefaultPosition()
                     player.prepare()
                     player.playWhenReady = true
@@ -451,6 +485,8 @@ private fun TilePlayer(
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                // Keep the TV awake while tiles play; tied to this view, so it ends when the tile goes.
+                keepScreenOn = true
                 this.player = player
             }
         },
@@ -463,6 +499,11 @@ private fun TilePlayer(
 @AndroidXOptIn(UnstableApi::class)
 private fun buildTilePlayer(context: Context, channel: IptvChannel, client: OkHttpClient, lowMemory: Boolean): ExoPlayer {
     val http = OkHttpDataSource.Factory(client).setDefaultRequestProperties(channel.headers)
+    // Same default User-Agent as the full-screen player when the playlist sets none.
+    if (channel.headers.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+        http.setUserAgent(PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
+    }
+    com.nuvio.tv.data.iptv.LiveStreamGuard.protect(channel.streamUrl)
     val (minMs, maxMs) = if (lowMemory) 2_500 to 8_000 else 4_000 to 15_000
     val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(minMs, maxMs, 1_500, 2_500)

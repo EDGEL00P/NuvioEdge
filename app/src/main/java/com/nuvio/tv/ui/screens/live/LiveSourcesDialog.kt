@@ -2,6 +2,8 @@
 
 package com.nuvio.tv.ui.screens.live
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -145,6 +147,12 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
         subtitle = stringResource(R.string.live_add_subtitle),
         width = 640.dp
     ) {
+        // Fields scroll; the buttons stay pinned. On 540dp-tall TV screens (Chromecast, Fire TV)
+        // the Xtream form is taller than the dialog, and Save/Cancel would otherwise be cut off.
+        Column(
+            modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
+        ) {
         Field(stringResource(R.string.live_field_name)) {
             InputField(
                 value = name,
@@ -206,6 +214,7 @@ private fun AddSourceDialog(type: IptvSourceType, viewModel: LiveTvViewModel, on
         }
         addState.error?.let {
             Text(text = it, style = MaterialTheme.typography.bodySmall, color = NuvioTheme.colors.Error)
+        }
         }
         SettingsDialogActionRow {
             SettingsDialogActionButton(stringResource(R.string.action_cancel), onClick = onDone, enabled = !addState.saving)

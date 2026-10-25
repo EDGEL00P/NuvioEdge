@@ -47,23 +47,25 @@ class IptvRepository @Inject constructor(
             networkInterceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
         }
         // Never follow https -> http: the redirected request would carry the login in clear text.
-        .addNetworkInterceptor { chain ->
-            val response = chain.proceed(chain.request())
-            if (response.isRedirect && IptvSafety.isInsecureRedirect(chain.request().isHttps, response.header("Location"))) {
-                response.close()
-                throw IptvSafety.InsecureRedirectException()
-            }
-            response
-        }
+        .addNetworkInterceptor(LiveStreamGuard.redirectGuard(always = true))
         .build()
 
-    /** For video players: no disk cache, logging or Sentry breadcrumbs (stream URLs can hold logins). */
-    val streamClient: OkHttpClient = okHttpClient.newBuilder()
-        .cache(null)
-        .apply {
-            interceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
-            networkInterceptors().removeAll { it is HttpLoggingInterceptor || it is SentryNetworkBreadcrumbInterceptor }
-        }
+    /**
+     * For multiview players. Built from scratch, not from the app client: no disk cache, logging,
+     * Sentry breadcrumbs or forced app User-Agent (the playlist's own User-Agent must reach the
+     * server), and its own connection limits; OkHttp's default of 5 per server would leave the
+     * 6th tile of an Xtream account waiting forever, since live streams never finish.
+     */
+    val streamClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(com.nuvio.tv.core.network.IPv4FirstDns())
+        .dispatcher(okhttp3.Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 32
+        })
+        .connectionPool(okhttp3.ConnectionPool())
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .addNetworkInterceptor(LiveStreamGuard.redirectGuard(always = true))
         .build()
 
     private val cache = IptvFileCache(File(context.cacheDir, "nuvio_live"), vault::cacheKey)
@@ -102,17 +104,17 @@ class IptvRepository @Inject constructor(
         )
         // Validate before saving so a typo never gets stored.
         withContext(Dispatchers.IO) { fetchPlaylist(source, force = true) }
-        store.save(store.current() + source)
+        store.update { it + source }
         return source
     }
 
     suspend fun removeSource(id: String) {
-        store.save(store.current().filterNot { it.id == id })
+        store.update { list -> list.filterNot { it.id == id } }
         playlists.remove(id)
     }
 
     suspend fun setSourceEnabled(id: String, enabled: Boolean) {
-        store.save(store.current().map { if (it.id == id) it.copy(enabled = enabled) else it })
+        store.update { list -> list.map { if (it.id == id) it.copy(enabled = enabled) else it } }
     }
 
     suspend fun loadChannels(sources: List<IptvSource>, force: Boolean): ChannelLoadResult =

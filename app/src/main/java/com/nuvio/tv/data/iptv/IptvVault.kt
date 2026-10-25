@@ -75,11 +75,16 @@ internal class ResilientKey(
 
     override fun encrypt(plain: ByteArray, associatedData: ByteArray): ByteArray {
         if (!primaryBroken) {
-            try {
-                return primary.encrypt(plain, associatedData)
-            } catch (e: Exception) {
-                primaryBroken = true
-                Log.w("IptvVault", "Android Keystore unavailable; using the app-private key", e)
+            // Two tries: a single Keystore hiccup must not switch keys for the rest of the session.
+            repeat(2) { attempt ->
+                try {
+                    return primary.encrypt(plain, associatedData)
+                } catch (e: Exception) {
+                    if (attempt == 1) {
+                        primaryBroken = true
+                        Log.w("IptvVault", "Android Keystore unavailable; using the app-private key", e)
+                    }
+                }
             }
         }
         val fallback = software(true) ?: throw IOException("No encryption key available")
@@ -88,12 +93,12 @@ internal class ResilientKey(
 
     override fun decrypt(blob: ByteArray, associatedData: ByteArray): ByteArray {
         var failure: Exception? = null
-        if (!primaryBroken) {
-            try {
-                return primary.decrypt(blob, associatedData)
-            } catch (e: Exception) {
-                failure = e
-            }
+        // Always try the Keystore first, even after it failed to encrypt: data sealed with it earlier
+        // must stay readable.
+        try {
+            return primary.decrypt(blob, associatedData)
+        } catch (e: Exception) {
+            failure = e
         }
         software(false)?.let { fallback ->
             try {

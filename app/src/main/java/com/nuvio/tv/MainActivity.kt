@@ -1238,6 +1238,7 @@ open class MainActivity : ComponentActivity() {
                             AmbientModeHost(
                                 controller = ambientIdleController,
                                 allowed = currentRoute?.startsWith("player/") != true &&
+                                    currentRoute != Screen.LiveMultiview.route &&
                                     autoNextOverlay == null &&
                                     !isTrailerPlaying,
                                 onShown = { trailerPlayerPool.stop() }

@@ -89,4 +89,12 @@ class M3uParserTest {
         assertEquals("Name", M3uParser.extractName("""#EXTINF:-1 group-title="a,b",Name"""))
         assertEquals("", M3uParser.extractName("#EXTINF:-1"))
     }
+
+    @Test
+    fun `channel ids use a 64-bit FNV-1a hash`() {
+        // Published FNV-1a 64-bit test vectors.
+        assertEquals("cbf29ce484222325", M3uParser.stableHash(""))
+        assertEquals("af63dc4c8601ec8c", M3uParser.stableHash("a"))
+        assertEquals(16, M3uParser.stableHash("BBC One|BBC One|UK").length)
+    }
 }

@@ -884,7 +884,10 @@ fun PlayerScreen(
                         }
                         KeyEvent.KEYCODE_DPAD_UP -> {
                                 if (!uiState.showControls) {
-                                    viewModel.onEvent(PlayerEvent.OnToggleControls)
+                                    // Live TV: up/down change channel on remotes without CH keys (Fire TV, Chromecast).
+                                    val zapped = uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                        com.nuvio.tv.ui.screens.live.LiveZapSession.zap(forward = true)
+                                    if (!zapped) viewModel.onEvent(PlayerEvent.OnToggleControls)
                                 } else {
                                     try {
                                         progressBarFocusRequester.requestFocus()
@@ -909,13 +912,26 @@ fun PlayerScreen(
                             }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (!uiState.showControls) {
-                                viewModel.onEvent(PlayerEvent.OnToggleControls)
+                                val zapped = uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                    com.nuvio.tv.ui.screens.live.LiveZapSession.zap(forward = false)
+                                if (!zapped) viewModel.onEvent(PlayerEvent.OnToggleControls)
                                 true
                             } else {
                                 // Let focus system handle navigation when controls are visible
                                 false
                             }
                         }
+                        KeyEvent.KEYCODE_PAGE_UP,
+                        KeyEvent.KEYCODE_PAGE_DOWN ->
+                            uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                com.nuvio.tv.ui.screens.live.LiveZapSession.zap(
+                                    forward = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PAGE_UP
+                                )
+                        in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 ->
+                            uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                com.nuvio.tv.ui.screens.live.LiveZapSession.onDigit(
+                                    keyEvent.nativeKeyEvent.keyCode - KeyEvent.KEYCODE_NUMPAD_0
+                                )
                         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                             viewModel.onEvent(PlayerEvent.OnPlayPause)
                             true

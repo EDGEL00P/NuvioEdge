@@ -64,4 +64,35 @@ class ResilientKeyTest {
         assertThrows(IOException::class.java) { key.decrypt(sealed, aad) }
         assertThrows(IOException::class.java) { key.decrypt(key.encrypt(plain, aad), "other".toByteArray()) }
     }
+
+    @Test
+    fun `one keystore hiccup does not switch keys`() {
+        val file = File(tmp.root, "fallback.bin")
+        val real = softwareKey()
+        var calls = 0
+        val flaky = object : KeyEncryptionKey {
+            override fun encrypt(plain: ByteArray, associatedData: ByteArray): ByteArray {
+                if (calls++ == 0) throw ProviderException("busy")
+                return real.encrypt(plain, associatedData)
+            }
+            override fun decrypt(blob: ByteArray, associatedData: ByteArray) = real.decrypt(blob, associatedData)
+        }
+        val key = ResilientKey(flaky) { create -> softwareKeyFile(file, create) }
+        assertArrayEquals(plain, real.decrypt(key.encrypt(plain, aad), aad))
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun `keystore data stays readable after the keystore failed to encrypt`() {
+        val file = File(tmp.root, "fallback.bin")
+        val real = softwareKey()
+        val sealedEarlier = real.encrypt(plain, aad)
+        val encryptBroken = object : KeyEncryptionKey {
+            override fun encrypt(plain: ByteArray, associatedData: ByteArray): ByteArray = throw ProviderException("broken")
+            override fun decrypt(blob: ByteArray, associatedData: ByteArray) = real.decrypt(blob, associatedData)
+        }
+        val key = ResilientKey(encryptBroken) { create -> softwareKeyFile(file, create) }
+        key.encrypt(plain, aad) // switches to the fallback key
+        assertArrayEquals(plain, key.decrypt(sealedEarlier, aad))
+    }
 }

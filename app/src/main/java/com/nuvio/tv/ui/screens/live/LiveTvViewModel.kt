@@ -7,6 +7,7 @@ import com.nuvio.tv.data.iptv.IptvChannel
 import com.nuvio.tv.data.iptv.IptvRepository
 import com.nuvio.tv.data.iptv.IptvSource
 import com.nuvio.tv.data.iptv.IptvSourceType
+import com.nuvio.tv.data.iptv.LiveStreamGuard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -184,6 +185,9 @@ object LiveZapSession {
     private val tried = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     /** Reconnects of the same stream when no backup copy is left. */
     private val reconnects = ReconnectBudget()
+    /** Backup copies of every channel, built in the background when the channel list changes. */
+    @Volatile private var backups: BackupIndex? = null
+    private val indexScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
 
     private val _typedNumber = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val typedNumber: StateFlow<String?> = _typedNumber.asStateFlow()
@@ -201,10 +205,19 @@ object LiveZapSession {
     ) {
         if (current != null && current?.id != channel.id) previous = current
         channels = list
+        val listChanged = all !== allChannels || backups?.isFor(allChannels) != true
         all = allChannels
+        if (listChanged) {
+            backups = null
+            indexScope.launch(liveErrors) {
+                val built = BackupIndex(allChannels)
+                if (all === allChannels) backups = built // a newer list may have arrived meanwhile
+            }
+        }
         guide = guideMap
         index = list.indexOfFirst { it.id == channel.id }
         current = channel
+        LiveStreamGuard.protect(channel.streamUrl)
         tried.clear()
         reconnects.reset()
     }
@@ -240,9 +253,11 @@ object LiveZapSession {
         val go = navigator ?: return false
         val failed = current ?: return false
         tried += failed.id
-        val backup = backupCopies(failed, all).firstOrNull { it.id !in tried } ?: return false
+        // Index still building (just opened a huge playlist): no backup yet, the caller reconnects instead.
+        val backup = backups?.copiesOf(failed)?.firstOrNull { it.id !in tried } ?: return false
         tried += backup.id
         current = backup
+        LiveStreamGuard.protect(backup.streamUrl)
         go(backup)
         return true
     }
@@ -280,6 +295,7 @@ object LiveZapSession {
         val go = navigator ?: return false
         if (current?.id != channel.id) previous = current
         current = channel
+        LiveStreamGuard.protect(channel.streamUrl)
         channels.indexOfFirst { it.id == channel.id }.takeIf { it >= 0 }?.let { index = it }
         tried.clear()
         reconnects.reset()

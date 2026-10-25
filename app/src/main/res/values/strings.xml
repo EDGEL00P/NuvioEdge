@@ -3461,6 +3461,6 @@
     <string name="live_search_none">Nothing found on your channels.</string>
     <string name="live_search_now">On now · %1$s</string>
     <string name="live_search_at">%1$s · %2$s</string>
-    <string name="live_hint_numbers">Hold Select to add a favourite. While watching: CH+/CH− change channel, type a number to jump, Last Channel flips back.</string>
+    <string name="live_hint_numbers">Hold Select to add a favourite. While watching: Up/Down or CH+/CH− change channel, OK shows the controls, type a number to jump, Last Channel flips back.</string>
     <string name="live_attribution">Live TV is based on VesperTV by NoXqc (GPL-3.0)</string>
 </resources>

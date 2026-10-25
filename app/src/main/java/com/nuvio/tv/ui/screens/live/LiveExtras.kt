@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,17 +41,45 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 import java.text.DateFormat
 import java.util.Date
 
-/** Other copies of the same channel (same guide id or same normalised name), for automatic failover. */
-internal fun backupCopies(channel: IptvChannel, all: List<IptvChannel>): List<IptvChannel> {
-    val guideId = channel.epgId?.lowercase()
-    val name = XmltvParser.normalizeChannelName(channel.epgName ?: channel.name)
-    return all.filter { other ->
-        other.id != channel.id && other.streamUrl != channel.streamUrl && (
-            (guideId != null && other.epgId?.lowercase() == guideId) ||
-                (name.isNotEmpty() && XmltvParser.normalizeChannelName(other.epgName ?: other.name) == name)
-            )
+/**
+ * Other copies of each channel (same guide id or same normalised name), for automatic failover.
+ * Built once per channel list, off the main thread; a lookup is then a couple of map reads instead
+ * of normalising every channel name again (which froze the UI on 20k+ channel playlists).
+ */
+internal class BackupIndex(private val channels: List<IptvChannel>) {
+    private val position = HashMap<String, Int>(channels.size * 2)
+    private val byGuideId = HashMap<String, MutableList<IptvChannel>>()
+    private val byName = HashMap<String, MutableList<IptvChannel>>()
+
+    init {
+        channels.forEachIndexed { i, channel ->
+            position[channel.id] = i
+            channel.epgId?.lowercase()?.let { byGuideId.getOrPut(it) { ArrayList(2) }.add(channel) }
+            nameKey(channel).takeIf { it.isNotEmpty() }?.let { byName.getOrPut(it) { ArrayList(2) }.add(channel) }
+        }
     }
+
+    /** True when this index was built for exactly [list] (same instance). */
+    fun isFor(list: List<IptvChannel>): Boolean = list === channels
+
+    /** Copies of [channel], in playlist order; never the channel itself or the same stream URL. */
+    fun copiesOf(channel: IptvChannel): List<IptvChannel> {
+        val byId = channel.epgId?.lowercase()?.let { byGuideId[it] }.orEmpty()
+        val byNameMatch = nameKey(channel).takeIf { it.isNotEmpty() }?.let { byName[it] }.orEmpty()
+        return (byId + byNameMatch)
+            .asSequence()
+            .filter { it.id != channel.id && it.streamUrl != channel.streamUrl }
+            .distinctBy { it.id }
+            .sortedBy { position[it.id] ?: Int.MAX_VALUE }
+            .toList()
+    }
+
+    private fun nameKey(channel: IptvChannel) = XmltvParser.normalizeChannelName(channel.epgName ?: channel.name)
 }
+
+/** One-off lookup (tests, small lists). Hot paths keep a [BackupIndex]. */
+internal fun backupCopies(channel: IptvChannel, all: List<IptvChannel>): List<IptvChannel> =
+    BackupIndex(all).copiesOf(channel)
 
 data class LiveSearchHit(val channel: IptvChannel, val programme: EpgProgramme?, val airingNow: Boolean)
 
@@ -101,7 +130,7 @@ internal fun LiveSearchDialog(
             modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(hits, key = { it.channel.id + ":" + (it.programme?.startMs ?: 0) }) { hit ->
+            itemsIndexed(hits, key = { i, hit -> "$i:" + hit.channel.id }) { _, hit ->
                 ListItem(
                     selected = false,
                     onClick = { onPlay(hit.channel) },

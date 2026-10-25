@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.live
 import com.nuvio.tv.data.iptv.EpgProgramme
 import com.nuvio.tv.data.iptv.IptvChannel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -81,5 +82,18 @@ class LiveExtrasTest {
             LiveZapSession.navigator = null
             LiveZapSession.clear()
         }
+    }
+
+    @Test
+    fun `backup index matches the one-off lookup and knows its list`() {
+        val all = listOf(
+            ch("1", "Fox Footy HD"), ch("2", "FOX FOOTY"), ch("3", "Kayo 1"), ch("4", "fox footy (AU)")
+        )
+        val index = BackupIndex(all)
+        assertEquals(listOf("2", "4"), index.copiesOf(all[0]).map { it.id })
+        assertEquals(backupCopies(all[0], all).map { it.id }, index.copiesOf(all[0]).map { it.id })
+        assertTrue(index.copiesOf(all[2]).isEmpty())
+        assertTrue(index.isFor(all))
+        assertFalse(index.isFor(all.toList()))
     }
 }
