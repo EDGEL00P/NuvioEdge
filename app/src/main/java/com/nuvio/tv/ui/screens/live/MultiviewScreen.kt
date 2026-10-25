@@ -2,6 +2,8 @@
 
 package com.nuvio.tv.ui.screens.live
 
+import com.nuvio.tv.ui.screens.account.InputField
+import androidx.compose.runtime.produceState
 import android.content.Context
 import android.view.ViewGroup
 import androidx.annotation.OptIn as AndroidXOptIn
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -226,7 +229,8 @@ fun MultiviewScreen(
 
     LaunchedEffect(state.loading) { if (!state.loading) runCatching { firstTile.requestFocus() } }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(8.dp)) {
+    // TV safe area: 48dp sides, 27dp top and bottom (Android TV layout guidelines).
+    Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 48.dp, vertical = 27.dp)) {
         LayoutBar(state, onSelect = viewModel::setTileCount)
         val (columns, rows) = gridFor(state.tileCount)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -538,28 +542,61 @@ private fun buildTilePlayer(context: Context, channel: IptvChannel, client: OkHt
         }
 }
 
+/** Channels in [group] (null = all) whose name contains [query], any case. */
+internal fun filterChannels(channels: List<IptvChannel>, query: String, group: String?): List<IptvChannel> {
+    val q = query.trim()
+    return channels.filter { (group == null || it.group == group) && (q.isEmpty() || it.name.contains(q, ignoreCase = true)) }
+}
+
 @Composable
 private fun ChannelPicker(channels: List<IptvChannel>, onPick: (IptvChannel) -> Unit, onDismiss: () -> Unit) {
-    NuvioDialog(onDismiss = onDismiss, title = stringResource(R.string.multiview_pick_title), width = 560.dp) {
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+    var query by remember { mutableStateOf("") }
+    var group by remember { mutableStateOf<String?>(null) }
+    val groups = remember(channels) { channels.map { it.group }.distinct() }
+    // Filtering 50k+ channels runs off the main thread, after typing pauses.
+    val shown by produceState(channels, channels, query, group) {
+        delay(200)
+        value = withContext(Dispatchers.Default) { filterChannels(channels, query, group) }
+    }
+    NuvioDialog(onDismiss = onDismiss, title = stringResource(R.string.multiview_pick_title), width = 860.dp) {
+        InputField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = stringResource(R.string.multiview_pick_search),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(channels, key = { it.id }) { channel ->
-                ListItem(
-                    selected = false,
-                    onClick = { onPick(channel) },
-                    colors = ListItemDefaults.colors(
-                        containerColor = NuvioTheme.colors.BackgroundCard,
-                        focusedContainerColor = NuvioTheme.colors.FocusBackground,
-                        focusedContentColor = NuvioTheme.colors.FocusContent
-                    ),
-                    headlineContent = {
-                        Text(listOfNotNull(channel.number?.toString(), channel.name).joinToString("  "))
-                    },
-                    supportingContent = { Text(channel.group, style = MaterialTheme.typography.bodySmall) }
-                )
+            LazyColumn(modifier = Modifier.width(240.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                item { PickerRow(stringResource(R.string.multiview_pick_all), selected = group == null) { group = null } }
+                items(groups) { name -> PickerRow(name, selected = group == name) { group = name } }
+            }
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(shown, key = { it.id }) { channel ->
+                    PickerRow(
+                        text = listOfNotNull(channel.number?.toString(), channel.name).joinToString("  "),
+                        selected = false,
+                        onClick = { onPick(channel) }
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun PickerRow(text: String, selected: Boolean, onClick: () -> Unit) {
+    ListItem(
+        selected = selected,
+        onClick = onClick,
+        colors = ListItemDefaults.colors(
+            containerColor = NuvioTheme.colors.BackgroundCard,
+            selectedContainerColor = NuvioTheme.colors.BackgroundElevated,
+            focusedContainerColor = NuvioTheme.colors.FocusBackground,
+            focusedContentColor = NuvioTheme.colors.FocusContent
+        ),
+        headlineContent = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    )
 }

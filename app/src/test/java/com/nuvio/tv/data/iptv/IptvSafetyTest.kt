@@ -73,4 +73,11 @@ class IptvSafetyTest {
         assertFalse(IptvSafety.isAllowedStream("rtmp://live/x"))
         assertEquals("Mozilla/5.0", IptvSafety.cleanHeaderValue("Mozilla/5.0 \u00e9\u2603"))
     }
+
+    @Test
+    fun `logins are removed before a url is stored`() {
+        assertEquals("http://panel.tv:8080/live/redacted/redacted/12.ts", IptvSafety.redactLogin("http://panel.tv:8080/live/joe/pw/12.ts"))
+        assertEquals("http://panel.tv/redacted/redacted/12", IptvSafety.redactLogin("http://panel.tv/joe/pw/12"))
+        assertEquals("https://cdn.tv/a.m3u8", IptvSafety.redactLogin("https://joe:pw@cdn.tv/a.m3u8?token=abc"))
+    }
 }

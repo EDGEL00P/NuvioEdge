@@ -1,5 +1,8 @@
 package com.nuvio.tv.data.iptv
 
+import java.io.IOException
+import androidx.datastore.preferences.core.emptyPreferences
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import android.util.Base64
 import android.util.Log
 import androidx.datastore.preferences.core.Preferences
@@ -27,6 +30,7 @@ import javax.inject.Singleton
  * Not part of Nuvio cloud sync (ProfileSettingsSyncService syncs an explicit feature allowlist)
  * and the app has android:allowBackup="false", so these never leave the device.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class IptvSourcesStore @Inject constructor(
     private val factory: ProfileDataStoreFactory,
@@ -45,11 +49,11 @@ class IptvSourcesStore @Inject constructor(
     private fun purpose(profileId: Int) = "nuvio-live/sources/v1/profile:$profileId"
 
     val sources: Flow<List<IptvSource>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { prefs -> readable(prefs, pid) }
+        store(pid).data.orEmptyOnReadError().map { prefs -> readable(prefs, pid) }
     }.flowOn(kotlinx.coroutines.Dispatchers.Default) // Keystore calls and JSON decoding, never on the main thread
 
     val favorites: Flow<Set<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        store(pid).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { it[favoritesKey].orEmpty() }
+        store(pid).data.orEmptyOnReadError().map { it[favoritesKey].orEmpty() }
     }
 
     suspend fun current(): List<IptvSource> = sources.first()
@@ -121,3 +125,7 @@ class IptvSourcesStore @Inject constructor(
         private const val FEATURE = "nuvio_live"
     }
 }
+
+/** DataStore reports a damaged or unreadable file as IOException: read it as empty instead of crashing. */
+internal fun Flow<Preferences>.orEmptyOnReadError(): Flow<Preferences> =
+    catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }

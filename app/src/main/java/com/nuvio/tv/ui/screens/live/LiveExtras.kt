@@ -38,7 +38,6 @@ import com.nuvio.tv.data.iptv.XmltvParser
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.screens.account.InputField
 import com.nuvio.tv.ui.theme.NuvioTheme
-import java.text.DateFormat
 import java.util.Date
 
 /**
@@ -178,7 +177,19 @@ fun LiveNumberEntryOverlay() {
     }
 }
 
-private fun formatClock(ms: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(ms))
+@Composable
+private fun formatClock(ms: Long): String = rememberTimeFormatter()(ms)
+
+/** Clock times in the TV's own 12/24-hour setting (java.text.DateFormat ignores it). */
+@Composable
+internal fun rememberTimeFormatter(): (Long) -> String {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context) {
+        val format = android.text.format.DateFormat.getTimeFormat(context)
+        val formatter: (Long) -> String = { ms -> format.format(Date(ms)) }
+        formatter
+    }
+}
 
 /** Logs a failed Live TV / ticker background task instead of crashing the app (ViewModel scopes are supervisor scopes). */
 internal val liveErrors = kotlinx.coroutines.CoroutineExceptionHandler { _, e ->

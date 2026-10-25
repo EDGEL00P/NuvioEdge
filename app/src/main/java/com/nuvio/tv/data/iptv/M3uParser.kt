@@ -1,5 +1,6 @@
-// Ported from VesperTV lib/services/m3u_parser.dart (Copyright (C) 2026 NoXqc, GPL-3.0).
-// Modified for NuvioTV: comma-safe names, header guide URL, per-channel HTTP headers.
+// Ported from VesperTV by NoXqc (lib/services/m3u_parser.dart), GPL-3.0.
+// Modified for NuvioEdge, October 2026: comma-safe names, header guide URL, per-channel HTTP
+// headers, 64-bit channel ids, channel limit, films and series skipped.
 package com.nuvio.tv.data.iptv
 
 import java.io.Reader

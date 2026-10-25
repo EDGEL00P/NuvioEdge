@@ -92,7 +92,15 @@ enum class GameState { PRE, LIVE, FINAL }
 /** How a ticker item is drawn. */
 enum class TickerKind { TEAMS, HEAD_TO_HEAD, LEADERBOARD }
 
-data class TeamLine(val abbreviation: String, val score: String?, val winner: Boolean = false)
+data class TeamLine(
+    val abbreviation: String,
+    val score: String?,
+    val winner: Boolean = false,
+    /** "Pittsburgh Steelers"; null for players. */
+    val fullName: String? = null,
+    /** "Steelers"; null for players. */
+    val shortName: String? = null
+)
 
 /** One row of a leaderboard: position ("1", "T2"), name, score ("-16", "E"), if any. */
 data class LeaderLine(val position: String, val name: String, val score: String?)
@@ -336,7 +344,9 @@ object EspnScoreboardParser {
     private fun teamLine(competitor: JsonObject) = TeamLine(
         abbreviation = competitor.obj("team")?.let { it.str("abbreviation") ?: it.str("shortDisplayName") } ?: "?",
         score = competitor.str("score"),
-        winner = competitor.bool("winner")
+        winner = competitor.bool("winner"),
+        fullName = competitor.obj("team")?.str("displayName"),
+        shortName = competitor.obj("team")?.let { it.str("shortDisplayName") ?: it.str("name") }
     )
 
     private fun athleteLine(competitor: JsonObject, score: String?) =

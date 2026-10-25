@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.iptv
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -36,6 +37,22 @@ internal object IptvSafety {
     fun cleanHeaderValue(value: String): String? =
         // Printable ASCII only: OkHttp rejects other characters in header values.
         value.filter { it in ' '..'~' }.trim().take(MAX_HEADER_CHARS).ifEmpty { null }
+
+    private val XTREAM_PREFIXES = setOf("live", "movie", "series", "timeshift")
+    private val XTREAM_SHORT_ID = Regex("""\d+(\.\w{1,5})?""")
+
+    /** [url] without query, user info or Xtream login path segments, for anything stored or logged. */
+    fun redactLogin(url: String): String {
+        val parsed = url.toHttpUrlOrNull() ?: return url.substringBefore('?')
+        val builder = parsed.newBuilder().query(null).fragment(null).username("").password("")
+        val segments = parsed.pathSegments
+        if (segments.size >= 4 && segments[0].lowercase() in XTREAM_PREFIXES) {
+            builder.setPathSegment(1, "redacted").setPathSegment(2, "redacted")
+        } else if (segments.size == 3 && XTREAM_SHORT_ID.matches(segments[2])) {
+            builder.setPathSegment(0, "redacted").setPathSegment(1, "redacted")
+        }
+        return builder.build().toString()
+    }
 
     /** True when an https request is redirected to plain http, which would resend the login unencrypted. */
     fun isInsecureRedirect(requestIsHttps: Boolean, location: String?): Boolean =

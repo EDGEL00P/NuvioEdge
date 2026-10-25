@@ -2,6 +2,8 @@
 
 package com.nuvio.tv.ui.screens.live
 
+import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.compose.material.icons.filled.Scoreboard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,8 +64,6 @@ import com.nuvio.tv.data.iptv.IptvChannel
 import com.nuvio.tv.data.iptv.IptvRepository
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioTheme
-import java.text.DateFormat
-import java.util.Date
 
 @Composable
 fun LiveTvScreen(
@@ -76,6 +76,8 @@ fun LiveTvScreen(
     val tickerOn by tickerViewModel.enabled.collectAsStateWithLifecycle()
     var showSources by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
+    var showScores by remember { mutableStateOf(false) }
+    var showGuide by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     // Guide refresh and the clock only run while this screen is visible.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -95,9 +97,10 @@ fun LiveTvScreen(
     }
     LiveTvContent(
         state = state,
-        tickerOn = tickerOn,
+        showGuide = showGuide,
         onRefresh = viewModel::refresh,
-        onToggleTicker = tickerViewModel::toggle,
+        onToggleGuide = { showGuide = !showGuide },
+        onOpenScores = { showScores = true },
         onOpenSources = { showSources = true },
         onOpenMultiview = onOpenMultiview,
         onOpenSearch = { showSearch = true },
@@ -112,6 +115,23 @@ fun LiveTvScreen(
 
     if (showSources) {
         LiveSourcesDialog(viewModel = viewModel, onDismiss = { showSources = false })
+    }
+    if (showScores) {
+        ScoresDialog(
+            loadGames = tickerViewModel::gamesNow,
+            loadDetail = tickerViewModel::detail,
+            channels = state.allChannels,
+            guide = state.guide,
+            nowMs = state.nowMs,
+            tickerOn = tickerOn,
+            onToggleTicker = tickerViewModel::toggle,
+            onPlay = { channel ->
+                showScores = false
+                viewModel.startZapSession(channel)
+                onPlayChannel(channel, LiveZapSession.nowTitle(channel))
+            },
+            onDismiss = { showScores = false }
+        )
     }
     if (showSearch) {
         LiveSearchDialog(
@@ -132,9 +152,10 @@ fun LiveTvScreen(
 @Composable
 internal fun LiveTvContent(
     state: LiveTvUiState,
-    tickerOn: Boolean,
+    showGuide: Boolean,
     onRefresh: () -> Unit,
-    onToggleTicker: () -> Unit,
+    onToggleGuide: () -> Unit,
+    onOpenScores: () -> Unit,
     onOpenSources: () -> Unit,
     onOpenMultiview: () -> Unit,
     onOpenSearch: () -> Unit,
@@ -168,14 +189,16 @@ internal fun LiveTvContent(
             }
             HeaderButton(Icons.Default.Refresh, stringResource(R.string.live_refresh), enabled = !state.loading && !state.guideLoading, onClick = onRefresh)
             Spacer(Modifier.width(NuvioTheme.spacing.sm))
-            HeaderButton(
-                Icons.Default.Star,
-                stringResource(if (tickerOn) R.string.ticker_on else R.string.ticker_off),
-                onClick = onToggleTicker
-            )
+            HeaderButton(Icons.Default.Scoreboard, stringResource(R.string.scores_button), onClick = onOpenScores)
             Spacer(Modifier.width(NuvioTheme.spacing.sm))
             if (state.allChannels.isNotEmpty()) {
                 HeaderButton(Icons.Default.Search, stringResource(R.string.live_search), onClick = onOpenSearch)
+                Spacer(Modifier.width(NuvioTheme.spacing.sm))
+                HeaderButton(
+                    Icons.Default.CalendarViewWeek,
+                    stringResource(if (showGuide) R.string.live_channel_list else R.string.live_guide),
+                    onClick = onToggleGuide
+                )
                 Spacer(Modifier.width(NuvioTheme.spacing.sm))
                 HeaderButton(Icons.Default.GridView, stringResource(R.string.multiview_button), onClick = onOpenMultiview)
                 Spacer(Modifier.width(NuvioTheme.spacing.sm))
@@ -215,12 +238,22 @@ internal fun LiveTvContent(
                     modifier = Modifier.width(300.dp).fillMaxHeight()
                 )
                 Spacer(Modifier.width(NuvioTheme.spacing.lg))
-                ChannelList(
-                    state = state,
-                    onPlay = onPlay,
-                    onToggleFavorite = onToggleFavorite,
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
+                if (showGuide) {
+                    GuideGrid(
+                        channels = state.channels,
+                        guide = state.guide,
+                        nowMs = state.nowMs,
+                        onPlay = onPlay,
+                        modifier = Modifier.weight(1f).fillMaxHeight()
+                    )
+                } else {
+                    ChannelList(
+                        state = state,
+                        onPlay = onPlay,
+                        onToggleFavorite = onToggleFavorite,
+                        modifier = Modifier.weight(1f).fillMaxHeight()
+                    )
+                }
             }
         }
     }
@@ -426,7 +459,8 @@ private fun ProgrammeLine(programme: EpgProgramme, nowMs: Long) {
     }
 }
 
-private fun formatTime(ms: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(ms))
+@Composable
+private fun formatTime(ms: Long): String = rememberTimeFormatter()(ms)
 
 /** Bottom space so the last rows can scroll above the sports ticker. */
 private val TICKER_CLEARANCE = 96.dp

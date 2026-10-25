@@ -434,8 +434,17 @@ internal fun PlayerRuntimeController.initializePlayer(
             var currentDiagnostics = LastPlaybackDiagnostics(
                 timestampMs = System.currentTimeMillis(),
                 host = url.safeHost(),
-                streamUrl = url,
-                headersJson = org.json.JSONObject(headers).toString(),
+                // Live TV stream URLs and headers can carry the IPTV login: keep neither on disk.
+                streamUrl = if (contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) {
+                    com.nuvio.tv.data.iptv.IptvSafety.redactLogin(url)
+                } else {
+                    url
+                },
+                headersJson = if (contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) {
+                    "{}"
+                } else {
+                    org.json.JSONObject(headers).toString()
+                },
                 hdrCapsKnown = dv7AutoResult?.hdrCapsKnown ?: false,
                 displayDv = dv7AutoResult?.displayDv ?: false,
                 displayHdr10 = dv7AutoResult?.displayHdr10 ?: false,

@@ -1,5 +1,5 @@
-// XMLTV guide parsing for Nuvio Live. Behaviour modelled on VesperTV lib/services/epg_service.dart
-// (Copyright (C) 2026 NoXqc, GPL-3.0); rewritten as a streaming SAX parser for NuvioTV.
+// XMLTV guide parsing. Behaviour modelled on VesperTV by NoXqc (lib/services/epg_service.dart),
+// GPL-3.0; rewritten for NuvioEdge, October 2026, as a streaming SAX parser.
 package com.nuvio.tv.data.iptv
 
 import org.xml.sax.Attributes

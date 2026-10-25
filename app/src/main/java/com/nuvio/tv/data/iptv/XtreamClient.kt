@@ -1,5 +1,5 @@
-// Ported from VesperTV lib/services/xtream_api_service.dart (Copyright (C) 2026 NoXqc, GPL-3.0).
-// Modified for NuvioTV.
+// Ported from VesperTV by NoXqc (lib/services/xtream_api_service.dart), GPL-3.0.
+// Modified for NuvioEdge, October 2026: streamed channel list, output formats, connection limit.
 package com.nuvio.tv.data.iptv
 
 import kotlinx.serialization.json.Json

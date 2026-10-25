@@ -52,10 +52,8 @@ class IptvRepository @Inject constructor(
         .build()
 
     /**
-     * For multiview players. Built from scratch, not from the app client: no disk cache, logging,
-     * Sentry breadcrumbs or forced app User-Agent (the playlist's own User-Agent must reach the
-     * server), and its own connection limits; OkHttp's default of 5 per server would leave the
-     * 6th tile of an Xtream account waiting forever, since live streams never finish.
+     * For multiview players, built from scratch: no disk cache, logging, Sentry or forced User-Agent,
+     * and 32 connections per server (OkHttp's default of 5 would leave a 6th live tile waiting forever).
      */
     val streamClient: OkHttpClient = OkHttpClient.Builder()
         .dns(com.nuvio.tv.core.network.IPv4FirstDns())

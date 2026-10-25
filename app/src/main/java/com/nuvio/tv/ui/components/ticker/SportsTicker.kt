@@ -76,6 +76,7 @@ class SportsTickerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Polls every minute only while the ticker is enabled and on screen (WhileSubscribed). */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val games: StateFlow<List<TickerGame>> = enabled
         .flatMapLatest { on ->
             if (!on) flowOf(emptyList())
@@ -94,6 +95,11 @@ class SportsTickerViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Today's games for the Scores screen, whether or not the ticker is showing. */
+    suspend fun gamesNow(): List<TickerGame> = repository.fetchGames()
+
+    suspend fun detail(game: TickerGame): com.nuvio.tv.data.sports.GameDetail? = repository.fetchDetail(game)
 
     fun toggle() {
         viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.setEnabled(!enabled.value) }
@@ -130,7 +136,7 @@ fun SportsTickerOverlay(viewModel: SportsTickerViewModel = hiltViewModel()) {
             games = games,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .padding(start = 48.dp, end = 48.dp, bottom = 27.dp) // TV safe area
         )
     }
 }

@@ -1,5 +1,7 @@
 package com.nuvio.tv.data.sports
 
+import com.nuvio.tv.data.iptv.orEmptyOnReadError
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import com.nuvio.tv.core.profile.ProfileManager
@@ -12,7 +14,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -26,6 +27,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Scores and odds for the ticker, from ESPN's free public scoreboard feed (unofficial, no key). */
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class SportsTickerRepository @Inject constructor(
     okHttpClient: OkHttpClient,
@@ -40,7 +42,7 @@ class SportsTickerRepository @Inject constructor(
 
     /** On by default; the only ticker setting. */
     val enabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
-        factory.get(pid, FEATURE).data.catch { e -> if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e }.map { it[enabledKey] ?: true }
+        factory.get(pid, FEATURE).data.orEmptyOnReadError().map { it[enabledKey] ?: true }
     }
 
     suspend fun setEnabled(value: Boolean) {
@@ -82,15 +84,29 @@ class SportsTickerRepository @Inject constructor(
         select(leagues.flatMap { cache[it.path]?.games.orEmpty() }, nowMs)
     }
 
-    private fun fetchLeague(league: SportsLeague): List<TickerGame> {
-        val url = "$BASE/${league.path}/scoreboard"
+    private fun fetchLeague(league: SportsLeague): List<TickerGame> =
+        EspnScoreboardParser.parse(fetchText("$BASE/${league.path}/scoreboard"), league.label, league.format)
+
+    /** Box score, standings, injuries and headlines for a team-sport game; null when unavailable. */
+    suspend fun fetchDetail(game: TickerGame): GameDetail? = withContext(Dispatchers.IO) {
+        val league = ALL_LEAGUES.firstOrNull { it.label == game.league && it.format == FeedFormat.TEAMS }
+            ?: return@withContext null
+        try {
+            EspnSummaryParser.parse(fetchText("$BASE/${league.path}/summary?event=${game.id}"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun fetchText(url: String): String =
         http.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val bytes = ByteArrayOutputStream()
             IptvSafety.copyLimited(response.body.byteStream(), bytes, MAX_BYTES)
-            return EspnScoreboardParser.parse(bytes.toString(Charsets.UTF_8.name()), league.label, league.format)
+            bytes.toString(Charsets.UTF_8.name())
         }
-    }
 
     companion object {
         private const val FEATURE = "sports_ticker"
