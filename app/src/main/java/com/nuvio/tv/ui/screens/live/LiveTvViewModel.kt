@@ -215,6 +215,7 @@ object LiveZapSession {
     private val reconnects = ReconnectBudget()
     /** Backup copies of every channel, built in the background when the channel list changes. */
     @Volatile private var backups: BackupIndex? = null
+    @Volatile private var indexJob: kotlinx.coroutines.Job? = null
     private val indexScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
 
     private val _typedNumber = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -248,7 +249,7 @@ object LiveZapSession {
         all = allChannels
         if (listChanged) {
             backups = null
-            indexScope.launch(liveErrors) {
+            indexJob = indexScope.launch(liveErrors) {
                 val built = BackupIndex(allChannels)
                 if (all === allChannels) backups = built // a newer list may have arrived meanwhile
             }
@@ -349,6 +350,9 @@ object LiveZapSession {
         go(channel)
         return true
     }
+
+    /** Tests only: waits for the background backup index, which failover needs. */
+    internal fun awaitBackupIndex() = kotlinx.coroutines.runBlocking { indexJob?.join() }
 
     /** Live playback ended: drop the channel lists and guide (they can be large), keep the last channel. */
     fun releaseLists() {

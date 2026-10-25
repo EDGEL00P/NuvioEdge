@@ -72,6 +72,7 @@ class LiveExtrasTest {
         val all = listOf(main, ch("2", "Fox Footy FHD"), ch("3", "Fox Footy SD"))
         val opened = mutableListOf<String>()
         LiveZapSession.start(all, main, emptyMap(), all)
+        LiveZapSession.awaitBackupIndex()
         LiveZapSession.navigator = { opened += it.id }
         try {
             assertTrue(LiveZapSession.failover())
