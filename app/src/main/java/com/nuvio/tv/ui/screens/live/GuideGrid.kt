@@ -6,6 +6,7 @@ import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.draw.drawBehind
@@ -23,7 +24,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -129,10 +135,12 @@ internal fun GuideGrid(
                     Box(Modifier.width(gridWidth)) {
                         for (slot in 0 until WINDOW_SLOTS) {
                             val slotStart = windowStart + slot * SLOT_MS
+                            val isNow = nowMs in slotStart until (slotStart + SLOT_MS)
                             Text(
                                 text = timeFormat(slotStart),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = NuvioTheme.colors.TextSecondary,
+                                fontWeight = if (isNow) FontWeight.Bold else null,
+                                color = if (isNow) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextSecondary,
                                 modifier = Modifier.offset(x = dpPerMs * (slot * SLOT_MS).toFloat()).padding(start = 4.dp)
                             )
                         }
@@ -156,14 +164,7 @@ internal fun GuideGrid(
                 ) {
                     itemsIndexed(channels, key = { _, it -> it.id }) { index, channel ->
                         Row(Modifier.fillMaxWidth().height(56.dp)) {
-                            Text(
-                                text = listOfNotNull(channel.number?.toString(), channel.name).joinToString("  "),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = NuvioTheme.colors.TextPrimary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.width(nameWidth).padding(end = 8.dp, top = 6.dp)
-                            )
+                            ChannelHeader(channel, Modifier.width(nameWidth))
                             Box(Modifier.width(gridWidth).fillMaxHeight()) {
                                 val programmes = guide[channel.id]
                                 val cells = remember(programmes, windowStart) { guideCells(programmes, windowStart, windowEnd) }
@@ -186,6 +187,7 @@ internal fun GuideGrid(
                                     }
                                     GuideCellView(
                                         cell = cell,
+                                        nowMs = nowMs,
                                         airing = cell.programme != null && cell.startMs <= nowMs && nowMs < cell.endMs,
                                         onClick = { onPlay(channel) },
                                         modifier = Modifier
@@ -226,8 +228,50 @@ internal fun GuideGrid(
     }
 }
 
+/** A channel's logo, number and name down the left side of the guide, like a real EPG. */
 @Composable
-private fun GuideCellView(cell: GuideCell, airing: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun ChannelHeader(channel: IptvChannel, modifier: Modifier) {
+    Row(
+        modifier = modifier.fillMaxHeight().padding(end = 10.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 44.dp, height = 30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(NuvioTheme.colors.BackgroundCard),
+            contentAlignment = Alignment.Center
+        ) {
+            if (channel.logoUrl != null) {
+                AsyncImage(
+                    model = channel.logoUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().padding(3.dp)
+                )
+            } else {
+                Text(channel.name.take(3).uppercase(), style = MaterialTheme.typography.labelSmall, color = NuvioTheme.colors.TextSecondary)
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            channel.number?.let {
+                Text("$it", style = MaterialTheme.typography.labelMedium, color = NuvioTheme.colors.TextSecondary, maxLines = 1)
+            }
+            Text(
+                channel.name,
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioTheme.colors.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun GuideCellView(cell: GuideCell, nowMs: Long, airing: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val hasProgramme = cell.programme?.title?.isNotBlank() == true
     Surface(
         onClick = onClick,
         modifier = modifier,
@@ -236,17 +280,38 @@ private fun GuideCellView(cell: GuideCell, airing: Boolean, onClick: () -> Unit,
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (airing) NuvioTheme.colors.BackgroundElevated else NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.FocusBackground,
-            contentColor = NuvioTheme.colors.TextPrimary,
+            contentColor = if (hasProgramme) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextTertiary,
             focusedContentColor = NuvioTheme.colors.FocusContent
         )
     ) {
-        Text(
-            text = cell.programme?.title?.ifBlank { null } ?: stringResource(R.string.live_guide_no_info),
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-        )
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                Text(
+                    text = cell.programme?.title?.ifBlank { null } ?: stringResource(R.string.live_guide_no_info),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (hasProgramme && cell.programme!!.endMs > cell.programme.startMs) {
+                    val end = cell.programme.endMs
+                    val start = cell.programme.startMs
+                    val fraction = ((nowMs - start).toFloat() / (end - start)).coerceIn(0f, 1f)
+                    if (airing && fraction > 0f) {
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
+                                .background(NuvioTheme.colors.Divider)
+                        ) {
+                            Box(
+                                Modifier.fillMaxHeight().fillMaxWidth(fraction)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(NuvioTheme.colors.FocusBackground)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

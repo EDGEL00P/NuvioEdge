@@ -3447,6 +3447,9 @@
     <string name="scores_button">Scores</string>
     <string name="scores_title">Scores</string>
     <string name="scores_empty">No games right now</string>
+    <string name="scores_section_live">Live now</string>
+    <string name="scores_section_upcoming">Upcoming</string>
+    <string name="scores_section_final">Final</string>
     <string name="scores_close">Close</string>
     <string name="scores_on_your_channels">On your channels</string>
     <string name="scores_not_in_guide">Not in your TV guide right now</string>

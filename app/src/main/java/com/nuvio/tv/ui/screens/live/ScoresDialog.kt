@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -146,34 +148,21 @@ internal fun ScoresBrowser(
                     color = NuvioTheme.colors.TextSecondary
                 )
             }
-            else -> LazyColumn(
-                modifier = Modifier.width(360.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomPadding)
-            ) {
-                items(list, key = ::gameKey) { game ->
-                    ListItem(
-                        selected = gameKey(game) == selectedKey,
-                        onClick = { selectedKey = gameKey(game) },
-                        colors = ListItemDefaults.colors(
-                            containerColor = NuvioTheme.colors.BackgroundCard,
-                            selectedContainerColor = NuvioTheme.colors.BackgroundElevated,
-                            focusedContainerColor = NuvioTheme.colors.FocusBackground,
-                            focusedContentColor = NuvioTheme.colors.FocusContent
-                        ),
-                        headlineContent = { Text(matchupText(game), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = {
-                            Text(
-                                listOf(game.league, game.status).filter { it.isNotBlank() }.joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        trailingContent = if (game.state == GameState.LIVE) {
-                            { LiveBadge() }
-                        } else null
-                    )
+            else -> {
+                val live = list.filter { it.state == GameState.LIVE }
+                val upcoming = list.filter { it.state == GameState.PRE }
+                val finals = list.filter { it.state == GameState.FINAL }
+                val liveLabel = stringResource(R.string.scores_section_live)
+                val upcomingLabel = stringResource(R.string.scores_section_upcoming)
+                val finalLabel = stringResource(R.string.scores_section_final)
+                LazyColumn(
+                    modifier = Modifier.width(360.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomPadding)
+                ) {
+                    gameSection(liveLabel, live.size, live, selectedKey) { selectedKey = it }
+                    gameSection(upcomingLabel, upcoming.size, upcoming, selectedKey) { selectedKey = it }
+                    gameSection(finalLabel, finals.size, finals, selectedKey) { selectedKey = it }
                 }
             }
         }
@@ -185,6 +174,84 @@ internal fun ScoresBrowser(
 }
 
 private fun gameKey(game: TickerGame): String = game.league + ":" + game.id
+
+/** A titled section of games (Live / Upcoming / Final), skipped when empty. */
+private fun androidx.compose.foundation.lazy.LazyListScope.gameSection(
+    title: String,
+    count: Int,
+    games: List<TickerGame>,
+    selectedKey: String?,
+    onSelect: (String) -> Unit
+) {
+    if (games.isEmpty()) return
+    item(key = "h:$title") { ScoreSectionHeader(title, count) }
+    items(games, key = ::gameKey) { game -> GameRow(game, gameKey(game) == selectedKey, onSelect) }
+}
+
+@Composable
+private fun ScoreSectionHeader(title: String, count: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 10.dp, bottom = 2.dp, end = 12.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        Text(
+            title.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = NuvioTheme.colors.TextSecondary,
+            maxLines = 1
+        )
+        Spacer(Modifier.width(8.dp))
+        Text("$count", style = MaterialTheme.typography.labelSmall, color = NuvioTheme.colors.TextTertiary)
+    }
+}
+
+@Composable
+private fun GameRow(game: TickerGame, selected: Boolean, onSelect: (String) -> Unit) {
+    ListItem(
+        selected = selected,
+        onClick = { onSelect(gameKey(game)) },
+        colors = ListItemDefaults.colors(
+            containerColor = NuvioTheme.colors.BackgroundCard,
+            selectedContainerColor = NuvioTheme.colors.BackgroundElevated,
+            focusedContainerColor = NuvioTheme.colors.FocusBackground,
+            focusedContentColor = NuvioTheme.colors.FocusContent
+        ),
+        leadingContent = { LeagueChip(game.league) },
+        headlineContent = { Text(matchupText(game), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Text(
+                game.status.ifBlank { game.league },
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        trailingContent = if (game.state == GameState.LIVE) {
+            { LiveBadge() }
+        } else null
+    )
+}
+
+@Composable
+private fun LeagueChip(league: String) {
+    Box(
+        modifier = Modifier
+            .widthIn(min = 44.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(NuvioTheme.colors.BackgroundElevated)
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            league,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = NuvioTheme.colors.TextSecondary,
+            maxLines = 1
+        )
+    }
+}
 
 @Composable
 private fun LiveBadge() {
