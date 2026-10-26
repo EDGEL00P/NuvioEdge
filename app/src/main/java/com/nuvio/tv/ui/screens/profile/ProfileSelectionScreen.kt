@@ -778,10 +778,10 @@ fun ProfileSelectionScreen(
 
         // Delete confirmation dialog
         profileToDelete?.let { profile ->
-            val primaryDialogFocusRequester = remember(profile.id) { FocusRequester() }
+            val cancelFocusRequester = remember(profile.id) { FocusRequester() }
             LaunchedEffect(profile.id) {
                 repeat(2) { withFrameNanos { } }
-                runCatching { primaryDialogFocusRequester.requestFocus() }
+                runCatching { cancelFocusRequester.requestFocus() }
             }
             NuvioDialog(
                 onDismiss = { profileToDelete = null },
@@ -790,20 +790,33 @@ fun ProfileSelectionScreen(
                 width = 420.dp,
                 suppressFirstKeyUp = false
             ) {
-                Button(
-                    onClick = {
-                        viewModel.deleteProfile(profile.id)
-                        profileToDelete = null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(primaryDialogFocusRequester),
-                    colors = ButtonDefaults.colors(
-                        containerColor = Color(0xFF4A2323),
-                        contentColor = NuvioTheme.colors.TextPrimary
-                    )
+                Text(
+                    text = profile.name,
+                    style = NuvioTheme.textStyles.cardTitle,
+                    color = NuvioTheme.colors.TextPrimary
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md, Alignment.End)
                 ) {
-                    Text(stringResource(R.string.profile_delete_btn))
+                    Button(
+                        onClick = { profileToDelete = null },
+                        modifier = Modifier.focusRequester(cancelFocusRequester)
+                    ) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                    Button(
+                        onClick = {
+                            viewModel.deleteProfile(profile.id)
+                            profileToDelete = null
+                        },
+                        colors = ButtonDefaults.colors(
+                            containerColor = Color(0xFF4A2323),
+                            contentColor = NuvioTheme.colors.TextPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.profile_delete_btn))
+                    }
                 }
             }
         }

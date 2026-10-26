@@ -11,6 +11,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 import org.junit.rules.TemporaryFolder
 import javax.crypto.KeyGenerator
 
@@ -69,6 +70,17 @@ class ConditionalDownloaderTest {
             dl.fetch("big", server.url("/big").toString(), 1_000)
         }
         assertNull(cache.ageMs("big"))
+    }
+
+    @Test
+    fun `successful response without body is rejected and not cached`() {
+        val (dl, cache) = downloader()
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        assertThrows(IOException::class.java) {
+            dl.fetch("empty", server.url("/empty").toString(), 1_000)
+        }
+        assertNull(cache.ageMs("empty"))
     }
 
     @Test

@@ -29,7 +29,7 @@ internal class ConditionalDownloader(
                 return false
             }
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val body = response.body
+            val body = IptvSafety.requireResponseBody(response.body)
             if (body.contentLength() > maxBytes) throw IptvSafety.TooLargeException()
             cache.write(key) { out -> IptvSafety.copyLimited(body.byteStream(), out, maxBytes) }
             cache.writeValidators(key, Validators(response.header("ETag"), response.header("Last-Modified")))

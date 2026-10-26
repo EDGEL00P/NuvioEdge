@@ -37,7 +37,7 @@ data class UpdateUiState(
     val feedbackMessage: String? = null,
     val updateBannerEnabled: Boolean = true,
     val updateChannel: UpdateChannel = UpdateChannel.STABLE,
-    val autoInstallEnabled: Boolean = false,
+    val autoInstallEnabled: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
     val autoInstallSupported: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
     val autoInstallNoticeEnabled: Boolean = true,
     /** Release installed automatically since the last launch, shown in the banner until dismissed. */

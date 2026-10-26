@@ -9,6 +9,10 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -228,7 +232,15 @@ class IptvFileCache(
         try {
             SegmentedAesGcm.encryptingStream(tmp.outputStream().buffered(), encryptionKey(), name.toByteArray())
                 .use(block)
-            if (!tmp.renameTo(target)) throw IOException("Could not store cache entry")
+            try {
+                Files.move(tmp.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(tmp.toPath(), target.toPath(), REPLACE_EXISTING)
+            } catch (_: java.nio.file.FileAlreadyExistsException) {
+                Files.move(tmp.toPath(), target.toPath(), REPLACE_EXISTING)
+            }
+        } catch (e: IOException) {
+            throw IOException("Could not store cache entry", e)
         } finally {
             tmp.delete()
         }

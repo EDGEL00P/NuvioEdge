@@ -17,12 +17,17 @@ class MultiviewTilesTest {
         lowRam: Boolean = false,
         smallHeap: Boolean = false,
         avc: DecoderCaps? = DecoderCaps(16, 240.0),
-        hevc: DecoderCaps? = DecoderCaps(16, 240.0)
+        hevc: DecoderCaps? = DecoderCaps(16, 240.0),
+        extraDecoders: Map<String, DecoderCaps> = emptyMap()
     ) = DeviceProfile(
         totalRamMb = ramMb,
         lowRamDevice = lowRam,
         smallHeap = smallHeap,
-        decoders = listOfNotNull(avc?.let { "video/avc" to it }, hevc?.let { "video/hevc" to it }).toMap()
+        decoders = buildMap {
+            avc?.let { put("video/avc", it) }
+            hevc?.let { put("video/hevc", it) }
+            putAll(extraDecoders)
+        }
     )
 
     @After
@@ -85,6 +90,26 @@ class MultiviewTilesTest {
     @Test
     fun `unknown decoders fall back to two`() {
         assertEquals(2, DecoderBudget.tilesFor(profile(avc = null, hevc = null)))
+    }
+
+    @Test
+    fun `new video decoder capabilities limit multiview tiles`() {
+        val profile = profile(extraDecoders = mapOf("video/apv" to DecoderCaps(2, 120.0)))
+        assertEquals(2, DecoderBudget.tilesFor(profile))
+    }
+
+    @Test
+    fun `video MIME discovery includes future codecs and excludes non-video types`() {
+        assertEquals(
+            listOf("video/apv", "video/vvc"),
+            discoveredVideoMimeTypes(listOf("VIDEO/APV", "video/vvc", "audio/iamf", "text/vtt"))
+        )
+    }
+
+    @Test
+    fun `non-video decoder capabilities do not limit multiview tiles`() {
+        val profile = profile(extraDecoders = mapOf("audio/iamf" to DecoderCaps(1, 30.0)))
+        assertEquals(6, DecoderBudget.tilesFor(profile))
     }
 
     @Test

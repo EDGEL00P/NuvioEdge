@@ -48,7 +48,6 @@ internal data class DeviceProfile(
 internal object DecoderBudget {
     const val MAX_TILES = 6
     val TILE_OPTIONS = listOf(1, 2, 4, 6)
-    private val LIVE_MIMES = listOf("video/avc", "video/hevc")
 
     /** Frame rate budgeted per tile; most live channels are 25-30 fps. 50/60 fps channels are caught by the overload check. */
     private const val TILE_FPS = 30.0
@@ -59,8 +58,10 @@ internal object DecoderBudget {
         private set
 
     fun tilesFor(profile: DeviceProfile, learned: Int = learnedLimit): Int {
-        val known = LIVE_MIMES.mapNotNull { profile.decoders[it] }
-        // Every tile may get either codec, so the scarcest decoder sets the limit.
+        val known = profile.decoders
+            .filterKeys { it.startsWith("video/", ignoreCase = true) }
+            .values
+        // Any tile may use a platform video codec, including codecs introduced by later Android releases.
         val byInstances = known.minOfOrNull { it.instances } ?: 2 // nothing reported: assume two
         val byThroughput = known.mapNotNull { it.maxFps1080p }.minOrNull()
             ?.let { (it / TILE_FPS).toInt() } ?: MAX_TILES
@@ -90,7 +91,7 @@ internal object DecoderBudget {
     /** Reads the hardware decoders. Software decoders are ignored: several at once would freeze a TV CPU. */
     fun probe(): Map<String, DecoderCaps> = runCatching {
         val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder && isHardware(it) }
-        LIVE_MIMES.mapNotNull { mime ->
+        discoveredVideoMimeTypes(infos.flatMap { it.supportedTypes.asIterable() }).mapNotNull { mime ->
             val caps = infos.mapNotNull { info ->
                 val type = info.supportedTypes.firstOrNull { it.equals(mime, ignoreCase = true) } ?: return@mapNotNull null
                 runCatching { info.getCapabilitiesForType(type) }.getOrNull()
@@ -117,6 +118,12 @@ internal object DecoderBudget {
             !info.name.startsWith("OMX.google.", ignoreCase = true) && !info.name.startsWith("c2.android.", ignoreCase = true)
         }
 }
+
+    internal fun discoveredVideoMimeTypes(supportedTypes: Iterable<String>): List<String> =
+        supportedTypes
+            .filter { it.startsWith("video/", ignoreCase = true) }
+            .map { it.lowercase() }
+            .distinct()
 
 /** Grid shape for each tile count: (columns, rows). */
 internal fun gridFor(tiles: Int): Pair<Int, Int> = when {

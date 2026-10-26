@@ -1,6 +1,7 @@
 package com.nuvio.tv.updater
 
 import android.content.Context
+import android.os.Build
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -51,7 +52,7 @@ class UpdatePreferences @Inject constructor(
     }
 
     val autoInstallEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[autoInstallEnabledKey] ?: false
+        prefs[autoInstallEnabledKey] ?: (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
     }
 
     /** Release tag and APK path of the update already downloaded, if any, so it survives the app being closed. */

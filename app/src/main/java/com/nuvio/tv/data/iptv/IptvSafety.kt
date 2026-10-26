@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.iptv
 
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.ResponseBody
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -37,6 +38,12 @@ internal object IptvSafety {
     fun cleanHeaderValue(value: String): String? =
         // Printable ASCII only: OkHttp rejects other characters in header values.
         value.filter { it in ' '..'~' }.trim().take(MAX_HEADER_CHARS).ifEmpty { null }
+
+    fun requireResponseBody(body: ResponseBody?): ResponseBody {
+        val responseBody = body ?: throw IOException("Empty response body")
+        if (responseBody.contentLength() == 0L) throw IOException("Empty response body")
+        return responseBody
+    }
 
     private val XTREAM_PREFIXES = setOf("live", "movie", "series", "timeshift")
     private val XTREAM_SHORT_ID = Regex("""\d+(\.\w{1,5})?""")

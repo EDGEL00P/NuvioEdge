@@ -124,18 +124,50 @@ class HardwareVideoDecoderSelectorTest {
     }
 
     @Test
-    fun `other video types are untouched`() {
+    fun `other video types prefer supported hardware decoders`() {
         val decoders = arrayOf(
             decoder("c2.amlogic.vc1.decoder", "video/vc1", softwareOnly = false),
             decoder("c2.amlogic.vc1.decoder.sw", "video/vc1", softwareOnly = true),
             decoder("c2.amlogic.mpeg2.decoder", MimeTypes.VIDEO_MPEG2, softwareOnly = false),
             decoder("c2.android.mpeg2.decoder", MimeTypes.VIDEO_MPEG2, softwareOnly = true),
         )
-        assertEquals(listOf("c2.amlogic.vc1.decoder", "c2.amlogic.vc1.decoder.sw"), names(format("video/vc1"), *decoders))
+        assertEquals(listOf("c2.amlogic.vc1.decoder"), names(format("video/vc1"), *decoders))
         assertEquals(
-            listOf("c2.amlogic.mpeg2.decoder", "c2.android.mpeg2.decoder"),
+            listOf("c2.amlogic.mpeg2.decoder"),
             names(format(MimeTypes.VIDEO_MPEG2), *decoders),
         )
+    }
+
+    @Test
+    fun `future APV and VVC video MIME types prefer supported hardware`() {
+        val software = FakeDecoder("software", software = true, vp9Profiles = emptySet())
+        val hardware = FakeDecoder("hardware", software = false, vp9Profiles = emptySet())
+
+        listOf("video/apv", "video/vvc").forEach { mimeType ->
+            val selected = hardwareFirstVideoDecoders(
+                mimeType,
+                listOf(software, hardware),
+                { it.software },
+                { it === hardware }
+            )
+            assertEquals(listOf("hardware"), selected.map { it.name })
+        }
+    }
+
+    @Test
+    fun `future video format retains software fallback when hardware lacks support`() {
+        val software = FakeDecoder("software", software = true, vp9Profiles = emptySet())
+        val hardware = FakeDecoder("hardware", software = false, vp9Profiles = emptySet())
+        val decoders = listOf(software, hardware)
+
+        val selected = hardwareFirstVideoDecoders(
+            "video/apv",
+            decoders,
+            { it.software },
+            { it.software }
+        )
+
+        assertEquals(decoders, selected)
     }
 
     @Test

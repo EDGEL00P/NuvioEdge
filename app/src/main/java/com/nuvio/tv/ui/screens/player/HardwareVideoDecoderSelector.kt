@@ -3,18 +3,9 @@ package com.nuvio.tv.ui.screens.player
 import android.media.MediaCodecList
 import android.os.Build
 import androidx.media3.common.Format
-import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
-
-private val HARDWARE_FIRST_VIDEO_TYPES = setOf(
-    MimeTypes.VIDEO_H264,
-    MimeTypes.VIDEO_H265,
-    MimeTypes.VIDEO_VP9,
-    MimeTypes.VIDEO_AV1,
-    MimeTypes.VIDEO_DOLBY_VISION,
-)
 
 private val SOFTWARE_DECODER_PREFIXES = listOf("omx.google.", "c2.android.", "c2.google.", "omx.ffmpeg.")
 
@@ -28,7 +19,7 @@ internal fun <T> hardwareFirstVideoDecoders(
     isSoftware: (T) -> Boolean,
     supportsFormat: (T) -> Boolean,
 ): List<T> {
-    if (mimeType !in HARDWARE_FIRST_VIDEO_TYPES) return decoders
+    if (mimeType?.startsWith("video/", ignoreCase = true) != true) return decoders
     val hardware = decoders.filterNot(isSoftware)
     return if (hardware.any(supportsFormat)) hardware else decoders
 }

@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -1537,22 +1538,37 @@ private fun ConfirmDeleteDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val cancelFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        repeat(2) { withFrameNanos { } }
+        runCatching { cancelFocusRequester.requestFocus() }
+    }
     NuvioDialog(
         onDismiss = onCancel,
         title = stringResource(R.string.library_delete_title),
         subtitle = stringResource(R.string.library_delete_subtitle),
         width = 420.dp
     ) {
-        Button(
-            onClick = onConfirm,
-            enabled = !pending,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.colors(
-                containerColor = Color(0xFF4A2323),
-                contentColor = NuvioTheme.colors.TextPrimary
-            )
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md, androidx.compose.ui.Alignment.End)
         ) {
-            Text(stringResource(R.string.library_list_delete))
+            Button(
+                onClick = onCancel,
+                modifier = Modifier.focusRequester(cancelFocusRequester)
+            ) {
+                Text(stringResource(R.string.action_cancel))
+            }
+            Button(
+                onClick = onConfirm,
+                enabled = !pending,
+                colors = ButtonDefaults.colors(
+                    containerColor = Color(0xFF4A2323),
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.library_list_delete))
+            }
         }
     }
 }

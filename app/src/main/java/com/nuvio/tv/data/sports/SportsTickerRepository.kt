@@ -103,8 +103,9 @@ class SportsTickerRepository @Inject constructor(
     private fun fetchText(url: String): String =
         http.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+            val body = IptvSafety.requireResponseBody(response.body)
             val bytes = ByteArrayOutputStream()
-            IptvSafety.copyLimited(response.body.byteStream(), bytes, MAX_BYTES)
+            IptvSafety.copyLimited(body.byteStream(), bytes, MAX_BYTES)
             bytes.toString(Charsets.UTF_8.name())
         }
 
