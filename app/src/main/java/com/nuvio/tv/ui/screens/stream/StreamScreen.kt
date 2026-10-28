@@ -895,7 +895,7 @@ private fun RightStreamSection(
                     )
                     .background(
                         if (hazeState != null) {
-                            Color(0xFF1C1C1E).copy(alpha = 0.65f)
+                                NuvioTheme.colors.Panel.copy(alpha = 0.65f)
                         } else {
                             NuvioTheme.colors.BackgroundCard.copy(alpha = 0.5f)
                         }

@@ -25,7 +25,7 @@ import com.nuvio.tv.data.local.StreamBadgeSettingsDataStore
 import com.nuvio.tv.data.repository.ParentalGuideRepository
 import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.data.repository.SkipIntroRepository
-import com.nuvio.tv.data.repository.TraktEpisodeMappingService
+import com.nuvio.tv.data.repository.trakt.TraktEpisodeMappingService
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.StreamRepository
@@ -37,7 +37,7 @@ import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.WatchedSeriesStateHolder
-import com.nuvio.tv.data.repository.TraktRelatedService
+import com.nuvio.tv.data.repository.trakt.TraktRelatedService
 import com.nuvio.tv.data.trailer.TrailerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext

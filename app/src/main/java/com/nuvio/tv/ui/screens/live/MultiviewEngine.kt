@@ -6,6 +6,40 @@ import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.os.Build
 import com.nuvio.tv.ui.screens.settings.MemoryBudget
+import com.nuvio.tv.data.iptv.IptvChannel
+
+internal data class MultiviewAccountBudget(val accountKey: String, val maxStreams: Int)
+
+internal fun canAssignMultiviewChannel(
+    tiles: List<IptvChannel?>,
+    index: Int,
+    channel: IptvChannel,
+    activeTiles: Int,
+    budgets: Map<String, MultiviewAccountBudget>
+): Boolean {
+    if (index !in tiles.indices || index >= activeTiles) return false
+    val budget = budgets[channel.sourceId] ?: return true
+    val occupied = tiles.take(activeTiles).withIndex().count { (slot, selected) ->
+        slot != index && selected != null && budgets[selected.sourceId]?.accountKey == budget.accountKey
+    }
+    return occupied < budget.maxStreams.coerceAtLeast(1)
+}
+
+internal fun enforceMultiviewBudgets(
+    tiles: List<IptvChannel?>,
+    activeTiles: Int,
+    budgets: Map<String, MultiviewAccountBudget>
+): List<IptvChannel?> {
+    val accepted = tiles.toMutableList()
+    val counts = HashMap<String, Int>()
+    accepted.take(activeTiles).forEachIndexed { index, channel ->
+        val budget = channel?.let { budgets[it.sourceId] } ?: return@forEachIndexed
+        val used = counts[budget.accountKey] ?: 0
+        if (used >= budget.maxStreams.coerceAtLeast(1)) accepted[index] = null
+        else counts[budget.accountKey] = used + 1
+    }
+    return accepted
+}
 
 /** What one hardware video decoder declares about itself. */
 internal data class DecoderCaps(

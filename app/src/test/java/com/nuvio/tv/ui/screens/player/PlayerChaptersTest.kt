@@ -36,6 +36,31 @@ class PlayerChaptersTest {
     }
 
     @Test
+    fun `chapter artwork takes precedence over fallback`() {
+        val chapter = PlayerChapter(90_000L, "Part 1", "https://example.com/chapter.jpg")
+
+        assertEquals(
+            "https://example.com/chapter.jpg",
+            PlayerChapters.artworkFor(chapter, "https://example.com/episode.jpg")
+        )
+    }
+
+    @Test
+    fun `blank chapter artwork falls back to episode art`() {
+        val chapter = PlayerChapter(90_000L, "Part 1", " ")
+
+        assertEquals(
+            "https://example.com/episode.jpg",
+            PlayerChapters.artworkFor(chapter, "https://example.com/episode.jpg")
+        )
+    }
+
+    @Test
+    fun `missing artwork stays optional`() {
+        assertNull(PlayerChapters.artworkFor(PlayerChapter(0L, "Intro"), null))
+    }
+
+    @Test
     fun `index is -1 before the first chapter`() {
         assertEquals(-1, PlayerChapters.indexAt(listOf(PlayerChapter(5_000L, null), PlayerChapter(9_000L, null)), 1_000L))
     }

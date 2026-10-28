@@ -47,9 +47,9 @@ internal fun PlayerRuntimeController.maybeAutoSwitchInternalPlayerOnStartupError
     }
 
     val switchingToMpv = targetEngine == InternalPlayerEngine.MVP_PLAYER
+    releasePlayer(flushPlaybackState = false)
     pendingMpvHardRestartOnNextAttach = switchingToMpv
     delayMpvResumeSeekUntilVideoTrack = switchingToMpv
-    releasePlayer(flushPlaybackState = false)
     initializePlayer(
         url = currentStreamUrl,
         headers = currentHeaders,
@@ -113,10 +113,10 @@ internal fun PlayerRuntimeController.switchToInternalPlayerEngine(
     }
 
     val switchingToMpv = targetEngine == InternalPlayerEngine.MVP_PLAYER
+    releasePlayer(flushPlaybackState = true, keepTorrentStream = true)
     pendingMpvHardRestartOnNextAttach = switchingToMpv
     delayMpvResumeSeekUntilVideoTrack = switchingToMpv
 
-    releasePlayer(flushPlaybackState = true, keepTorrentStream = true)
     initializePlayer(
         url = currentStreamUrl,
         headers = currentHeaders,

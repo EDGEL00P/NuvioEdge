@@ -5,7 +5,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.profile.ProfileManager
-import com.nuvio.tv.core.sync.LibrarySyncService
+import com.nuvio.tv.core.sync.library.LibrarySyncService
 import com.nuvio.tv.core.tracking.TrackingListManager
 import com.nuvio.tv.core.tracking.TrackingLibraryProviderRegistry
 import com.nuvio.tv.core.tracking.TrackingMembershipApplyResult

@@ -60,10 +60,14 @@ import java.util.Locale
 
 internal const val PatreonMembershipUrl = "https://www.patreon.com/settings/memberships"
 
-private val MembershipCardColor = Color(0xFF07080B)
-private val MembershipPrimaryText = Color(0xFFF6F7F9)
-private val MembershipSecondaryText = Color.White.copy(alpha = 0.65f)
-private val MembershipTertiaryText = Color.White.copy(alpha = 0.52f)
+private val MembershipCardColor: Color
+    @Composable get() = NuvioTheme.colors.BackgroundCard
+private val MembershipPrimaryText: Color
+    @Composable get() = NuvioTheme.colors.TextPrimary
+private val MembershipSecondaryText: Color
+    @Composable get() = NuvioTheme.colors.TextSecondary
+private val MembershipTertiaryText: Color
+    @Composable get() = NuvioTheme.colors.TextTertiary
 
 @Composable
 internal fun SupporterMembershipPanel(
@@ -103,7 +107,7 @@ internal fun SupporterMembershipPanel(
             .fillMaxSize()
             .clip(RoundedCornerShape(28.dp))
             .background(MembershipCardColor)
-            .border(NuvioTheme.spacing.hairline, Color.White.copy(alpha = 0.1f), RoundedCornerShape(28.dp))
+            .border(NuvioTheme.spacing.hairline, NuvioTheme.colors.BorderMuted, RoundedCornerShape(28.dp))
             .padding(horizontal = 28.dp, vertical = NuvioTheme.spacing.xxl)
     ) {
         MembershipPanelFront(
@@ -179,7 +183,7 @@ private fun MembershipPanelFront(
                 Text(
                     text = stringResource(R.string.supporter_membership_unable_load),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFFF9E9E)
+                    color = NuvioTheme.colors.Error
                 )
             }
         }

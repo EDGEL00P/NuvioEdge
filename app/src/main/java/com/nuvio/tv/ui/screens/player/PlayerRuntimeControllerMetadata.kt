@@ -46,12 +46,14 @@ internal fun PlayerRuntimeController.initializeCloudPlaybackSequence() {
     currentSeason = 1
     currentEpisode = playbackContext.currentIndex + 1
     currentEpisodeTitle = currentFile.name
+    val episodeThumbnail = metaVideos.firstOrNull { it.id == currentVideoId }?.thumbnail
     _uiState.update {
         it.copy(
             currentVideoId = currentVideoId,
             currentSeason = currentSeason,
             currentEpisode = currentEpisode,
-            currentEpisodeTitle = currentEpisodeTitle
+            currentEpisodeTitle = currentEpisodeTitle,
+            currentEpisodeThumbnail = episodeThumbnail
         )
     }
     recomputeNextEpisode(resetVisibility = false)
@@ -66,11 +68,16 @@ internal fun PlayerRuntimeController.applyMetaDetails(meta: Meta) {
         contentLanguage = meta.resolveContentLanguage()
     }
     val description = resolveDescription(meta)
+    val episodeThumbnail = meta.videos.firstOrNull { it.id == currentVideoId }?.thumbnail
+        ?: meta.videos.firstOrNull {
+            it.season == currentSeason && it.episode == currentEpisode
+        }?.thumbnail
 
     recomputeNextEpisode(resetVisibility = false)
     _uiState.update { state ->
         state.copy(
             description = description ?: state.description,
+            currentEpisodeThumbnail = episodeThumbnail ?: state.currentEpisodeThumbnail,
             castMembers = if (meta.castMembers.isNotEmpty()) meta.castMembers else state.castMembers,
             isNextEpisodeMetadataResolved = true
         )

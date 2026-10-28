@@ -433,6 +433,10 @@ fun AdvancedSettingsContent(
             }
         }
 
+        item(key = "preferences_backup") {
+            PreferencesBackupActions()
+        }
+
         item(key = "performance_settings") {
             SettingsGroupCard(
                 modifier = Modifier.fillMaxWidth(),

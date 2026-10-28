@@ -2,9 +2,9 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.network.NetworkResult
-import com.nuvio.tv.core.sync.WatchProgressSyncService
-import com.nuvio.tv.core.sync.WatchStateMutationStore
-import com.nuvio.tv.core.sync.WatchedItemsSyncService
+import com.nuvio.tv.core.sync.watch.WatchProgressSyncService
+import com.nuvio.tv.core.sync.watch.WatchStateMutationStore
+import com.nuvio.tv.core.sync.watch.WatchedItemsSyncService
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.data.local.TraktSettingsDataStore

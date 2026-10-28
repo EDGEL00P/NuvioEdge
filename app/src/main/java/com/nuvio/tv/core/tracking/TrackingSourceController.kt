@@ -1,7 +1,7 @@
 package com.nuvio.tv.core.tracking
 
 import com.nuvio.tv.core.sync.StartupSyncService
-import com.nuvio.tv.core.sync.WatchedItemsSyncService
+import com.nuvio.tv.core.sync.watch.WatchedItemsSyncService
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.TraktSettingsDataStore

@@ -2,9 +2,8 @@
 
 package com.nuvio.tv.ui.screens.live
 
-import androidx.compose.material.icons.filled.CalendarViewWeek
-import androidx.compose.material.icons.filled.Scoreboard
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,31 +19,38 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Scoreboard
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,24 +66,72 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.nuvio.tv.R
 import com.nuvio.tv.data.iptv.EpgProgramme
+import com.nuvio.tv.data.iptv.EpgSourceReport
+import com.nuvio.tv.data.iptv.EpgSourceStatus
 import com.nuvio.tv.data.iptv.IptvChannel
 import com.nuvio.tv.data.iptv.IptvRepository
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioTheme
+import kotlinx.coroutines.launch
 
 @Composable
 fun LiveTvScreen(
-    onPlayChannel: (IptvChannel, String?) -> Unit,
+    onPlayChannel: (IptvChannel, String?, String?) -> Unit,
     onOpenMultiview: () -> Unit,
     viewModel: LiveTvViewModel = hiltViewModel(),
     tickerViewModel: com.nuvio.tv.ui.components.ticker.SportsTickerViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var catchupLoading by remember { mutableStateOf(false) }
+    var catchupError by remember { mutableStateOf<String?>(null) }
+    val catchupUnavailable = stringResource(R.string.live_catchup_unavailable)
+
+    fun playArchive(channel: IptvChannel, programme: EpgProgramme) {
+        if (catchupLoading) return
+        catchupError = null
+        val nowMs = System.currentTimeMillis()
+        if (!IptvRepository.isCatchupAvailable(channel, programme, nowMs)) {
+            catchupError = catchupUnavailable
+            return
+        }
+        catchupLoading = true
+        scope.launch {
+            try {
+                val url = viewModel.catchupUrl(channel, programme, nowMs)
+                if (url == null) {
+                    catchupError = catchupUnavailable
+                } else {
+                    viewModel.startZapSession(channel)
+                    onPlayChannel(channel, programme.title, url)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                catchupError = catchupUnavailable
+            } finally {
+                catchupLoading = false
+            }
+        }
+    }
     val tickerOn by tickerViewModel.enabled.collectAsStateWithLifecycle()
+    val sportsFollows by tickerViewModel.follows.collectAsStateWithLifecycle()
+    val hideSportsScores by tickerViewModel.hideScores.collectAsStateWithLifecycle()
+    val sportsChannelOverrides by tickerViewModel.channelOverrides.collectAsStateWithLifecycle()
+    val sportsTeamChannelOverrides by tickerViewModel.teamChannelOverrides.collectAsStateWithLifecycle()
     var showSources by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showScores by remember { mutableStateOf(false) }
+    var showEpgReview by remember { mutableStateOf(false) }
     var showGuide by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var appliedStartScreen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(state.settingsLoaded) {
+        if (state.settingsLoaded && !appliedStartScreen) {
+            showGuide = state.settings.startScreen == com.nuvio.tv.data.local.LiveTvStartScreen.GUIDE
+            appliedStartScreen = true
+        }
+    }
 
     // Guide refresh and the clock only run while this screen is visible.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -98,23 +152,47 @@ fun LiveTvScreen(
     LiveTvContent(
         state = state,
         showGuide = showGuide,
+        showChannelNumbers = state.settings.showChannelNumbers,
         onRefresh = viewModel::refresh,
         onToggleGuide = { showGuide = !showGuide },
         onOpenScores = { showScores = true },
+        onOpenEpgReview = { showEpgReview = true },
         onOpenSources = { showSources = true },
         onOpenMultiview = onOpenMultiview,
         onOpenSearch = { showSearch = true },
         onSelectGroup = viewModel::selectGroup,
         onPlay = { channel ->
+            catchupError = null
             viewModel.startZapSession(channel)
             val now = IptvRepository.nowAndNext(state.guide[channel.id], System.currentTimeMillis()).first
-            onPlayChannel(channel, now?.title)
+            onPlayChannel(channel, now?.title, null)
         },
-        onToggleFavorite = viewModel::toggleFavorite
+        onToggleFavorite = viewModel::toggleFavorite,
+        onPlayProgramme = { channel, programme ->
+            val nowMs = System.currentTimeMillis()
+            if (programme != null && programme.endMs <= nowMs) {
+                playArchive(channel, programme)
+            } else {
+                catchupError = null
+                viewModel.startZapSession(channel)
+                val current = IptvRepository.nowAndNext(state.guide[channel.id], nowMs).first
+                onPlayChannel(channel, current?.title, null)
+            }
+        },
+        onPlayArchive = ::playArchive,
+        catchupLoading = catchupLoading,
+        catchupError = catchupError
     )
 
     if (showSources) {
         LiveSourcesDialog(viewModel = viewModel, onDismiss = { showSources = false })
+    }
+    if (showEpgReview) {
+        EpgMappingReviewDialog(
+            reports = state.guideReports,
+            viewModel = viewModel,
+            onDismiss = { showEpgReview = false }
+        )
     }
     if (showScores) {
         ScoresDialog(
@@ -125,10 +203,20 @@ fun LiveTvScreen(
             nowMs = state.nowMs,
             tickerOn = tickerOn,
             onToggleTicker = tickerViewModel::toggle,
+            follows = sportsFollows,
+            onFollowLeague = tickerViewModel::toggleFollowedLeague,
+            onFollowTeam = tickerViewModel::toggleFollowedTeam,
+            hideScores = hideSportsScores,
+            onToggleHideScores = tickerViewModel::toggleHideScores,
+            channelOverrides = sportsChannelOverrides,
+            saveChannelOverride = tickerViewModel::setChannelOverride,
+            teamChannelOverrides = sportsTeamChannelOverrides,
+            saveTeamChannelOverride = tickerViewModel::setTeamChannelOverride,
+            sourceNames = state.sources.associate { it.id to it.name },
             onPlay = { channel ->
                 showScores = false
                 viewModel.startZapSession(channel)
-                onPlayChannel(channel, LiveZapSession.nowTitle(channel))
+                onPlayChannel(channel, LiveZapSession.nowTitle(channel), null)
             },
             onDismiss = { showScores = false }
         )
@@ -141,7 +229,7 @@ fun LiveTvScreen(
             onPlay = { channel ->
                 showSearch = false
                 viewModel.startZapSession(channel)
-                onPlayChannel(channel, LiveZapSession.nowTitle(channel))
+                onPlayChannel(channel, LiveZapSession.nowTitle(channel), null)
             },
             onDismiss = { showSearch = false }
         )
@@ -153,15 +241,21 @@ fun LiveTvScreen(
 internal fun LiveTvContent(
     state: LiveTvUiState,
     showGuide: Boolean,
+    showChannelNumbers: Boolean = true,
     onRefresh: () -> Unit,
     onToggleGuide: () -> Unit,
     onOpenScores: () -> Unit,
+    onOpenEpgReview: () -> Unit,
     onOpenSources: () -> Unit,
     onOpenMultiview: () -> Unit,
     onOpenSearch: () -> Unit,
     onSelectGroup: (String) -> Unit,
     onPlay: (IptvChannel) -> Unit,
-    onToggleFavorite: (IptvChannel) -> Unit
+    onToggleFavorite: (IptvChannel) -> Unit,
+    onPlayProgramme: (IptvChannel, EpgProgramme?) -> Unit = { channel, _ -> onPlay(channel) },
+    onPlayArchive: (IptvChannel, EpgProgramme) -> Unit,
+    catchupLoading: Boolean = false,
+    catchupError: String? = null
 ) {
     Column(
         modifier = Modifier
@@ -169,14 +263,65 @@ internal fun LiveTvContent(
             .background(NuvioTheme.colors.Background)
             .padding(start = NuvioTheme.spacing.xxxl, end = NuvioTheme.spacing.xxl, top = NuvioTheme.spacing.xl)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = stringResource(R.string.live_title),
-                style = MaterialTheme.typography.headlineMedium,
-                color = NuvioTheme.colors.TextPrimary,
-                modifier = Modifier.weight(1f)
-            )
-            if (state.loading) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(NuvioTheme.colors.BackgroundElevated)
+                .padding(horizontal = NuvioTheme.spacing.lg, vertical = NuvioTheme.spacing.md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.live_title),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = NuvioTheme.colors.TextPrimary
+                    )
+                    Spacer(Modifier.width(NuvioTheme.spacing.md))
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(NuvioTheme.colors.Primary.copy(alpha = 0.14f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(NuvioTheme.colors.Primary))
+                        Text(
+                            text = stringResource(R.string.live_osd_live),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = NuvioTheme.colors.Primary
+                        )
+                    }
+                }
+                Text(
+                    text = stringResource(
+                        R.string.live_dashboard_status,
+                        state.allChannels.size,
+                        state.sources.count { it.enabled }
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioTheme.colors.TextSecondary,
+                    modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+                )
+            }
+            if (state.loading && state.sourceLoadTotal > 0) {
+                Text(
+                    text = stringResource(
+                        R.string.live_sources_progress,
+                        state.sourceLoadCompleted,
+                        state.sourceLoadTotal,
+                        (state.sourceLoadCompleted * 100 / state.sourceLoadTotal).coerceIn(0, 100)
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuvioTheme.colors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.width(NuvioTheme.spacing.sm))
+            }
+            if (catchupLoading || (state.loading && state.sourceLoadTotal == 0)) {
                 LoadingIndicator(modifier = Modifier.size(28.dp))
                 Spacer(Modifier.width(NuvioTheme.spacing.md))
             } else if (state.guideLoading) {
@@ -191,6 +336,10 @@ internal fun LiveTvContent(
             Spacer(Modifier.width(NuvioTheme.spacing.sm))
             HeaderButton(Icons.Default.Scoreboard, stringResource(R.string.scores_button), onClick = onOpenScores)
             Spacer(Modifier.width(NuvioTheme.spacing.sm))
+            if (state.guideReports.any { it.mappingReviews.isNotEmpty() }) {
+                HeaderButton(Icons.Default.Edit, stringResource(R.string.live_epg_review_button), onClick = onOpenEpgReview)
+                Spacer(Modifier.width(NuvioTheme.spacing.sm))
+            }
             if (state.allChannels.isNotEmpty()) {
                 HeaderButton(Icons.Default.Search, stringResource(R.string.live_search), onClick = onOpenSearch)
                 Spacer(Modifier.width(NuvioTheme.spacing.sm))
@@ -205,6 +354,38 @@ internal fun LiveTvContent(
             }
             HeaderButton(Icons.Default.Settings, stringResource(R.string.live_sources), onClick = onOpenSources)
         }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = NuvioTheme.spacing.sm)
+                .height(if (state.loading && state.sourceLoadTotal > 0) 4.dp else 2.dp)
+                .clip(CircleShape)
+                .background(NuvioTheme.colors.BackgroundElevated)
+        ) {
+            if (state.loading && state.sourceLoadTotal > 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth((state.sourceLoadCompleted.toFloat() / state.sourceLoadTotal).coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(NuvioTheme.colors.FocusRing)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    NuvioTheme.colors.Primary.copy(alpha = 0.8f),
+                                    NuvioTheme.colors.Primary.copy(alpha = 0.22f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
+        }
 
         if (state.allChannels.isNotEmpty()) {
             Text(
@@ -214,7 +395,17 @@ internal fun LiveTvContent(
                 modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
             )
         }
-        state.errors.forEach { (name, message) ->
+        catchupError?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioTheme.colors.Error,
+                modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+            )
+        }
+        state.errors.forEach { (sourceId, message) ->
+            val name = state.sources.firstOrNull { it.id == sourceId }?.name
+                ?: stringResource(R.string.live_source_unknown)
             Text(
                 text = stringResource(R.string.live_source_error, name, message),
                 style = MaterialTheme.typography.bodySmall,
@@ -222,9 +413,13 @@ internal fun LiveTvContent(
                 modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
             )
         }
+        if (!state.guideLoading && state.guideReports.isNotEmpty()) {
+            GuideHealthSummary(state.guideReports)
+        }
         Spacer(Modifier.height(NuvioTheme.spacing.md))
 
         when {
+            !state.settingsLoaded -> Box(Modifier.fillMaxSize(), Alignment.Center) { LoadingIndicator() }
             !state.sourcesLoaded -> Unit
             state.sources.isEmpty() -> EmptyState(onAdd = onOpenSources)
             state.allChannels.isEmpty() && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { LoadingIndicator() }
@@ -243,7 +438,9 @@ internal fun LiveTvContent(
                         channels = state.channels,
                         guide = state.guide,
                         nowMs = state.nowMs,
-                        onPlay = onPlay,
+                        showChannelNumbers = showChannelNumbers,
+                        onPlay = onPlayProgramme,
+                        onPlayArchive = onPlayArchive,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 } else {
@@ -256,6 +453,67 @@ internal fun LiveTvContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GuideHealthSummary(reports: List<EpgSourceReport>) {
+    val available = reports.filter { it.status == EpgSourceStatus.AVAILABLE }
+    val staleChannels = reports.filter { it.stale }.sumOf { it.channelCount }
+    val notConfiguredChannels = reports
+        .filter { it.status == EpgSourceStatus.NOT_CONFIGURED }
+        .sumOf { it.channelCount }
+    val failedChannels = reports
+        .filter { it.status == EpgSourceStatus.LOAD_ERROR }
+        .sumOf { it.channelCount }
+
+    if (available.isNotEmpty()) {
+        val matched = available.sumOf { it.matched }
+        val total = available.sumOf { it.channelCount }
+        val exact = available.sumOf { it.exactIdMatches }
+        val byName = available.sumOf { it.nameMatches }
+        val manual = available.sumOf { it.manualMatches }
+        val ambiguous = available.sumOf { it.ambiguous }
+        val unmatched = available.sumOf { it.unmatched }
+        Text(
+            text = stringResource(R.string.live_epg_match_report, matched, total, exact, byName, manual, ambiguous, unmatched),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (ambiguous + unmatched > 0) NuvioTheme.colors.Warning else NuvioTheme.colors.TextSecondary,
+            modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+        )
+        val stale = available.sumOf { it.staleManual }
+        if (stale > 0) {
+            Text(
+                text = stringResource(R.string.live_epg_stale_mappings, stale),
+                style = MaterialTheme.typography.labelSmall,
+                color = NuvioTheme.colors.Warning,
+                modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+            )
+        }
+    }
+    if (notConfiguredChannels > 0) {
+        Text(
+            text = stringResource(R.string.live_epg_not_configured, notConfiguredChannels),
+            style = MaterialTheme.typography.labelSmall,
+            color = NuvioTheme.colors.Warning,
+            modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+        )
+    }
+    if (failedChannels > 0) {
+        Text(
+            text = stringResource(R.string.live_epg_unavailable, failedChannels),
+            style = MaterialTheme.typography.labelSmall,
+            color = NuvioTheme.colors.Error,
+            modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+        )
+    }
+    if (staleChannels > 0) {
+        Text(
+            text = stringResource(R.string.live_epg_stale_data, staleChannels),
+            style = MaterialTheme.typography.labelSmall,
+            color = NuvioTheme.colors.Warning,
+            modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+        )
     }
 }
 
@@ -408,7 +666,7 @@ private fun ChannelList(
                 },
                 headlineContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        channel.number?.let {
+                        channel.number?.takeIf { state.settings.showChannelNumbers }?.let {
                             Text("$it", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 8.dp))
                         }
                         Text(channel.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))

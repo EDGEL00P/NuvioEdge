@@ -257,8 +257,8 @@ private fun ServerConnectionDialog(
         uiState.error?.let {
             ServerMessage(
                 text = it,
-                containerColor = Color(0x33C62828),
-                contentColor = Color(0xFFFF8A80)
+                containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
+                contentColor = NuvioTheme.colors.Error
             )
         }
         Row(
@@ -321,7 +321,7 @@ private fun ServerTrustConfirmationDialog(
             icon = Icons.Default.CheckCircle,
             label = stringResource(R.string.custom_server_verified_label),
             value = server.backendUrl,
-            tint = Color(0xFF7CFF9B)
+            tint = NuvioTheme.colors.Success
         )
         ServerDetailRow(
             icon = Icons.Default.Lock,
@@ -333,8 +333,8 @@ private fun ServerTrustConfirmationDialog(
         error?.let {
             ServerMessage(
                 text = it,
-                containerColor = Color(0x33C62828),
-                contentColor = Color(0xFFFF8A80)
+                containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
+                contentColor = NuvioTheme.colors.Error
             )
         }
         Row(
@@ -386,15 +386,15 @@ private fun ServerWarning(server: ServerConfiguration) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0x66FFB74D), RoundedCornerShape(14.dp))
-            .background(Color(0x1FFF9800), RoundedCornerShape(14.dp))
+            .border(1.dp, NuvioTheme.colors.Warning.copy(alpha = 0.40f), RoundedCornerShape(14.dp))
+            .background(NuvioTheme.colors.Warning.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
             .padding(NuvioTheme.spacing.md),
         verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
     ) {
         Text(
             text = stringResource(R.string.custom_server_warning_title),
             style = MaterialTheme.typography.titleSmall,
-            color = Color(0xFFFFCC80),
+            color = NuvioTheme.colors.Warning,
             fontWeight = FontWeight.SemiBold
         )
         Text(
@@ -432,8 +432,8 @@ private fun OfficialServerConfirmationDialog(
         error?.let {
             ServerMessage(
                 text = it,
-                containerColor = Color(0x33C62828),
-                contentColor = Color(0xFFFF8A80)
+                containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
+                contentColor = NuvioTheme.colors.Error
             )
         }
         Row(

@@ -106,7 +106,8 @@ data class MultiviewState(
     val reducedTo: Int? = null,
     val lowMemory: Boolean = false,
     /** Streams the IPTV account allows at once, when it is lower than what the TV can do. */
-    val accountLimit: Int? = null
+    val accountLimit: Int? = null,
+    val assignmentBlocked: Boolean = false
 )
 
 /** The channel you were just watching first, then favourites; empty tiles after that. */
@@ -137,9 +138,17 @@ class MultiviewViewModel @Inject constructor(
     /** Built off the main thread once the channels arrive; null until then. */
     @Volatile
     private var backups: BackupIndex? = null
+    @Volatile
+    private var accountBudgets: Map<String, MultiviewAccountBudget> = emptyMap()
 
     /** A backup copy of [channel], looked up only when a tile actually fails. */
-    fun backupFor(channel: IptvChannel): IptvChannel? = backups?.copiesOf(channel)?.firstOrNull()
+    fun backupFor(index: Int, channel: IptvChannel): IptvChannel? =
+        backups?.copiesOf(channel)?.firstOrNull { canAssign(index, it) }
+
+    fun canAssign(index: Int, channel: IptvChannel): Boolean {
+        val current = _state.value
+        return canAssignMultiviewChannel(current.tiles, index, channel, current.tileCount, accountBudgets)
+    }
 
     init {
         viewModelScope.launch(liveErrors) {
@@ -148,17 +157,38 @@ class MultiviewViewModel @Inject constructor(
                 val deviceMax = DecoderBudget.tilesFor(profile)
                 val sources = repository.sources.first()
                 val channels = repository.loadChannels(sources, force = false).channels
-                // Most Xtream accounts allow 1-2 connections; more tiles would just be refused.
-                val accountLimit = repository.connectionLimit(sources.filter { it.enabled }.map { it.id })
-                    ?.takeIf { it < deviceMax }
-                val maxTiles = accountLimit?.coerceAtLeast(1) ?: deviceMax
+                val sourceBudgets = sources.filter { it.enabled }.mapNotNull { source ->
+                    val limit = repository.connectionLimit(listOf(source.id)) ?: return@mapNotNull null
+                    val identity = com.nuvio.tv.data.iptv.XtreamClient.normalizeServer(source.url) + "\u0000" + source.username
+                    val accountKey = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(identity.toByteArray(Charsets.UTF_8))
+                        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+                    source.id to MultiviewAccountBudget(accountKey, limit.coerceAtLeast(1))
+                }
+                val limitsByAccount = sourceBudgets.map { it.second }.groupBy { it.accountKey }
+                    .mapValues { (_, budgets) -> budgets.minOf { it.maxStreams } }
+                accountBudgets = sourceBudgets.associate { (sourceId, budget) ->
+                    sourceId to budget.copy(maxStreams = limitsByAccount.getValue(budget.accountKey))
+                }
+                val activeSources = channels.mapTo(HashSet()) { it.sourceId }
+                val combinedCapacity = if (activeSources.any { it !in accountBudgets }) {
+                    deviceMax
+                } else {
+                    activeSources.mapNotNull(accountBudgets::get).distinctBy { it.accountKey }
+                        .sumOf { it.maxStreams.coerceAtMost(deviceMax) }.coerceAtLeast(1)
+                }
+                val accountLimit = combinedCapacity.takeIf { it < deviceMax }
+                val maxTiles = minOf(deviceMax, combinedCapacity)
+                val tileCount = DecoderBudget.bestOption(minOf(4, maxTiles))
                 val favorites = repository.favorites.first()
                 _state.value = MultiviewState(
                     loading = false,
                     channels = channels,
-                    tiles = initialTiles(channels, favorites, LiveZapSession.currentId()),
+                    tiles = enforceMultiviewBudgets(
+                        initialTiles(channels, favorites, LiveZapSession.currentId()), tileCount, accountBudgets
+                    ),
                     maxTiles = maxTiles,
-                    tileCount = DecoderBudget.bestOption(minOf(4, maxTiles)),
+                    tileCount = tileCount,
                     lowMemory = profile.lowRamDevice || profile.smallHeap,
                     accountLimit = accountLimit
                 )
@@ -169,12 +199,30 @@ class MultiviewViewModel @Inject constructor(
         }
     }
 
-    fun setTile(index: Int, channel: IptvChannel) {
-        _state.update { s -> s.copy(tiles = s.tiles.toMutableList().also { it[index] = channel }) }
+    fun setTile(index: Int, channel: IptvChannel): Boolean {
+        var accepted = false
+        _state.update { current ->
+            if (!canAssignMultiviewChannel(current.tiles, index, channel, current.tileCount, accountBudgets)) {
+                accepted = false
+                current.copy(assignmentBlocked = true)
+            } else {
+                accepted = true
+                current.copy(tiles = current.tiles.toMutableList().also { it[index] = channel }, assignmentBlocked = false)
+            }
+        }
+        return accepted
     }
 
     fun setTileCount(count: Int) {
-        _state.update { s -> s.copy(tileCount = DecoderBudget.bestOption(minOf(count, s.maxTiles)), reducedTo = null) }
+        _state.update { current ->
+            val active = DecoderBudget.bestOption(minOf(count, current.maxTiles))
+            current.copy(
+                tileCount = active,
+                tiles = enforceMultiviewBudgets(current.tiles, active, accountBudgets),
+                reducedTo = null,
+                assignmentBlocked = false
+            )
+        }
     }
 
     private var lastReductionMs = 0L
@@ -230,7 +278,7 @@ fun MultiviewScreen(
     LaunchedEffect(state.loading) { if (!state.loading) runCatching { firstTile.requestFocus() } }
 
     // TV safe area: 48dp sides, 27dp top and bottom (Android TV layout guidelines).
-    Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 48.dp, vertical = 27.dp)) {
+    Column(modifier = Modifier.fillMaxSize().background(NuvioTheme.colors.Background).padding(horizontal = 48.dp, vertical = 27.dp)) {
         LayoutBar(state, onSelect = viewModel::setTileCount)
         val (columns, rows) = gridFor(state.tileCount)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -252,7 +300,7 @@ fun MultiviewScreen(
                                 startDelayMs = index * TILE_START_GAP_MS,
                                 lowMemory = state.lowMemory
                             ),
-                            findBackup = { channel?.let(viewModel::backupFor) },
+                            findBackup = { channel?.let { viewModel.backupFor(index, it) } },
                             streamClient = viewModel.streamClient,
                             onFocused = { focused = index },
                             onPick = { picking = index },
@@ -283,8 +331,9 @@ fun MultiviewScreen(
     picking?.let { index ->
         ChannelPicker(
             channels = state.channels,
-            onPick = { viewModel.setTile(index, it); picking = null },
-            onDismiss = { picking = null }
+            onPick = { if (viewModel.setTile(index, it)) picking = null },
+            onDismiss = { picking = null },
+            canPick = { viewModel.canAssign(index, it) }
         )
     }
 }
@@ -305,7 +354,7 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(stringResource(R.string.multiview_layout), color = Color(0xFF94A3B8))
+        Text(stringResource(R.string.multiview_layout), color = NuvioTheme.colors.TextSecondary)
         DecoderBudget.TILE_OPTIONS.forEach { count ->
             Button(
                 onClick = { onSelect(count) },
@@ -317,10 +366,10 @@ private fun LayoutBar(state: MultiviewState, onSelect: (Int) -> Unit) {
             ) { Text("$count") }
         }
         Text(
-            text = state.reducedTo?.let { stringResource(R.string.multiview_reduced, it) }
+            text = if (state.assignmentBlocked) stringResource(R.string.multiview_account_busy) else state.reducedTo?.let { stringResource(R.string.multiview_reduced, it) }
                 ?: state.accountLimit?.let { stringResource(R.string.multiview_account_limit, it) }
                 ?: stringResource(R.string.multiview_device_limit, state.maxTiles),
-            color = if (state.reducedTo != null) Color(0xFFFCD34D) else Color(0xFF94A3B8),
+            color = if (state.reducedTo != null || state.assignmentBlocked) NuvioTheme.colors.Warning else NuvioTheme.colors.TextSecondary,
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -348,41 +397,41 @@ private fun Tile(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF05070D),
-            focusedContainerColor = Color(0xFF05070D)
+            containerColor = NuvioTheme.colors.BackgroundCard,
+            focusedContainerColor = NuvioTheme.colors.BackgroundCard
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            border = Border(BorderStroke(1.dp, NuvioTheme.colors.Border)),
             focusedBorder = Border(BorderStroke(3.dp, NuvioTheme.colors.FocusRing))
         )
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (channel == null) {
-                Text(stringResource(R.string.multiview_empty_tile), color = Color(0xFF94A3B8))
+                Text(stringResource(R.string.multiview_empty_tile), color = NuvioTheme.colors.TextSecondary)
             } else {
                 if (active) TilePlayer(channel, settings, findBackup, streamClient, events) { status = it }
                 Text(
                     text = channel.name,
-                    color = Color.White,
+                    color = NuvioTheme.colors.TextPrimary,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
-                        .background(Color(0xB3000000), RoundedCornerShape(4.dp))
+                        .background(NuvioTheme.colors.PlayerOverlay, RoundedCornerShape(4.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 )
                 status?.let { problem ->
                     Text(
                         text = if (problem.gaveUp) stringResource(R.string.multiview_tile_offline)
                         else stringResource(R.string.multiview_tile_recovering, problem.code),
-                        color = Color(0xFFFCD34D),
+                        color = NuvioTheme.colors.Warning,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(8.dp)
-                            .background(Color(0xB3000000), RoundedCornerShape(4.dp))
+                            .background(NuvioTheme.colors.PlayerOverlay, RoundedCornerShape(4.dp))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
@@ -549,7 +598,12 @@ internal fun filterChannels(channels: List<IptvChannel>, query: String, group: S
 }
 
 @Composable
-private fun ChannelPicker(channels: List<IptvChannel>, onPick: (IptvChannel) -> Unit, onDismiss: () -> Unit) {
+private fun ChannelPicker(
+    channels: List<IptvChannel>,
+    onPick: (IptvChannel) -> Unit,
+    onDismiss: () -> Unit,
+    canPick: (IptvChannel) -> Boolean = { true }
+) {
     var query by remember { mutableStateOf("") }
     var group by remember { mutableStateOf<String?>(null) }
     val groups = remember(channels) { channels.map { it.group }.distinct() }
@@ -578,6 +632,7 @@ private fun ChannelPicker(channels: List<IptvChannel>, onPick: (IptvChannel) -> 
                     PickerRow(
                         text = listOfNotNull(channel.number?.toString(), channel.name).joinToString("  "),
                         selected = false,
+                        enabled = canPick(channel),
                         onClick = { onPick(channel) }
                     )
                 }
@@ -587,9 +642,10 @@ private fun ChannelPicker(channels: List<IptvChannel>, onPick: (IptvChannel) -> 
 }
 
 @Composable
-private fun PickerRow(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun PickerRow(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     ListItem(
         selected = selected,
+        enabled = enabled,
         onClick = onClick,
         colors = ListItemDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,

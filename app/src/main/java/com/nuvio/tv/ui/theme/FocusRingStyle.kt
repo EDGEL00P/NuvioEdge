@@ -39,7 +39,7 @@ internal fun createThemeBrush(colors: List<Color>): Brush {
 
 internal fun createFocusRingStyle(palette: ThemeColorPalette): NuvioFocusRingStyle {
     return NuvioFocusRingStyle(
-        solidColor = palette.focusRing,
-        gradientColors = palette.focusRingGradient
+        solidColor = semanticFocusColor(palette.focusRing, palette.backgroundCard),
+        gradientColors = palette.focusRingGradient.map { semanticFocusColor(it, palette.backgroundCard) }
     )
 }

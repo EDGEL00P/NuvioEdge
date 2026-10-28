@@ -40,18 +40,6 @@ jobs:
           touch local.properties
           touch local.dev.properties
 
-      - name: Throwaway signing key (upstream signs debug builds with the release config)
-        run: |
-          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-debug.jks" -storepass android \
-            -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" \
-            -keyalg RSA -keysize 2048 -validity 10000
-          {
-            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/ci-debug.jks"
-            echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey"
-            echo "NUVIO_RELEASE_KEY_PASSWORD=android"
-            echo "NUVIO_RELEASE_STORE_PASSWORD=android"
-          } >> "$GITHUB_ENV"
-
       - name: NuvioEdge tests (must pass)
         run: >
           ./gradlew :app:testFullDebugUnitTest

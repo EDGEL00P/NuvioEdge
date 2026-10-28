@@ -436,8 +436,8 @@ internal fun PlaybackMemoryUsageCard(settings: PlayerSettings) {
         (MemoryBudget.budgetMb * 1.25f).toInt()
     }
     val usageColor = when (MemoryBudget.getUsageStatus(totalUsageMb, safeLimitMb, warningLimitMb)) {
-        MemoryUsageStatus.DANGER -> Color(0xFFF44336)
-        MemoryUsageStatus.WARNING -> Color(0xFFFF9800)
+                MemoryUsageStatus.DANGER -> NuvioTheme.colors.Error
+                MemoryUsageStatus.WARNING -> NuvioTheme.colors.Warning
         MemoryUsageStatus.SAFE -> NuvioPrimitives.success
     }
     val effectiveExoMb = (effectiveBufferMb - parallelOverheadMb).coerceAtLeast(MemoryBudget.MIN_BUFFER_MB)

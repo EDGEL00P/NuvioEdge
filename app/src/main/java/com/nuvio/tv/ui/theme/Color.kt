@@ -4,6 +4,41 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+
+internal fun semanticContrastRatio(foreground: Color, background: Color): Float {
+    val base = background.compositeOver(NuvioPrimitives.neutral950)
+    val foregroundLuminance = foreground.compositeOver(base).luminance()
+    val backgroundLuminance = base.luminance()
+    return (maxOf(foregroundLuminance, backgroundLuminance) + 0.05f) /
+        (minOf(foregroundLuminance, backgroundLuminance) + 0.05f)
+}
+
+internal fun semanticForegroundFor(background: Color): Color {
+    val whiteContrast = semanticContrastRatio(NuvioPrimitives.white, background)
+    val darkContrast = semanticContrastRatio(NuvioPrimitives.neutral925, background)
+    return when {
+        darkContrast >= whiteContrast && darkContrast >= 4.5f -> NuvioPrimitives.neutral925
+        whiteContrast >= 4.5f -> NuvioPrimitives.white
+        else -> NuvioPrimitives.black
+    }
+}
+
+internal fun semanticForegroundFor(background: Color, preferred: Color): Color =
+    if (semanticContrastRatio(preferred, background) >= 4.5f) preferred else semanticForegroundFor(background)
+
+internal fun semanticFocusColor(candidate: Color, background: Color): Color {
+    val opaque = candidate.copy(alpha = 1f)
+    if (semanticContrastRatio(opaque, background) >= 3f) return opaque
+    val target = semanticForegroundFor(background)
+    for (step in 1..12) {
+        val adjusted = lerp(opaque, target, step / 12f)
+        if (semanticContrastRatio(adjusted, background) >= 3f) return adjusted
+    }
+    return target
+}
 
 @Immutable
 data class NuvioSurfaceColors(
@@ -120,23 +155,23 @@ class NuvioColorScheme(
     val PlayerOverlay = palette.playerOverlay
     val Divider = NuvioPrimitives.neutral750
 
-    val Primary = NuvioPrimitives.neutral500
-    val PrimaryVariant = NuvioPrimitives.neutral650
-    val OnPrimary = NuvioPrimitives.white
+    val Primary = NuvioPrimitives.neutral200
+    val PrimaryVariant = NuvioPrimitives.neutral400
+    val OnPrimary = semanticForegroundFor(Primary)
     val Secondary = palette.secondary
     val SecondaryVariant = palette.secondaryVariant
-    val OnSecondary = palette.onSecondary
-    val OnSecondaryVariant = palette.onSecondaryVariant
+    val OnSecondary = semanticForegroundFor(Secondary, palette.onSecondary)
+    val OnSecondaryVariant = semanticForegroundFor(SecondaryVariant, palette.onSecondaryVariant)
 
-    val TextPrimary = NuvioPrimitives.white
+    val TextPrimary = NuvioPrimitives.neutral100
     val TextSecondary = NuvioPrimitives.neutral400
     val TextTertiary = NuvioPrimitives.neutral600
     val TextDisabled = NuvioPrimitives.neutral700
     val TextInverse = NuvioPrimitives.neutral925
 
-    val FocusRing = palette.focusRing
+    val FocusRing = semanticFocusColor(palette.focusRing, BackgroundCard)
     val FocusBackground = palette.focusBackground
-    val FocusContent = NuvioPrimitives.white
+    val FocusContent = semanticForegroundFor(FocusBackground)
     val FocusScrim = NuvioPrimitives.black.copy(alpha = 0.32f)
 
     val Rating = NuvioPrimitives.rating
@@ -211,9 +246,9 @@ class NuvioColorScheme(
         imageScrim = ImageScrim,
         posterFallback = PosterFallback,
         videoControlsScrim = VideoControlsScrim,
-        glassPanelTop = Color(0xD64A4F59),
-        glassPanelMiddle = Color(0xCC3F454F),
-        glassPanelBottom = Color(0xC640474F),
+        glassPanelTop = Panel.copy(alpha = 0.84f),
+        glassPanelMiddle = BackgroundElevated.copy(alpha = 0.80f),
+        glassPanelBottom = Background.copy(alpha = 0.78f),
         glow = FocusRing.copy(alpha = 0.32f)
     )
 
@@ -280,10 +315,10 @@ object NuvioColors {
         @ReadOnlyComposable
         get() = NuvioTheme.colors.SurfaceVariant
 
-    val Primary = NuvioPrimitives.neutral500
-    val PrimaryVariant = NuvioPrimitives.neutral650
-    val OnPrimary = NuvioPrimitives.white
-    val TextPrimary = NuvioPrimitives.white
+    val Primary = NuvioPrimitives.neutral200
+    val PrimaryVariant = NuvioPrimitives.neutral400
+    val OnPrimary = semanticForegroundFor(Primary)
+    val TextPrimary = NuvioPrimitives.neutral100
     val TextSecondary = NuvioPrimitives.neutral400
     val TextTertiary = NuvioPrimitives.neutral600
     val TextDisabled = NuvioPrimitives.neutral700

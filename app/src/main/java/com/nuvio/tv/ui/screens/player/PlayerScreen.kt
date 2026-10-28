@@ -167,6 +167,8 @@ import kotlin.math.abs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 
+private const val LIVE_CHANNEL_OSD_DURATION_MS = 4_500L
+
 private fun PlayerUiState.returnFocusSeasonEpisode(completed: Boolean): Pair<Int?, Int?> {
     val next = nextEpisode?.takeIf {
         it.hasAired && !(it.released.isNullOrBlank() && it.available == false)
@@ -219,6 +221,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val containerFocusRequester = remember { FocusRequester() }
+    val liveMiniGuideFocusRequester = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
     val progressBarFocusRequester = remember { FocusRequester() }
     val episodesFocusRequester = remember { FocusRequester() }
@@ -239,6 +242,10 @@ fun PlayerScreen(
     val subtitleDelaySyncLineFocusRequester = remember { FocusRequester() }
     var subtitleTimingConsumeNextConfirmKeyUp by remember { mutableStateOf(false) }
     var reportCodeVisible by remember { mutableStateOf(false) }
+    val liveZapSnapshot by com.nuvio.tv.ui.screens.live.LiveZapSession.snapshot.collectAsState()
+    var showLiveMiniGuide by remember { mutableStateOf(false) }
+    var liveOsdVisible by remember { mutableStateOf(false) }
+    var miniGuideWasOpen by remember { mutableStateOf(false) }
     var exitDispatched by remember { mutableStateOf(false) }
     var externalHandoffInProgress by remember { mutableStateOf(false) }
     val autoPlayEnabledForBack = playerBackTreatsSkipAsAutoPlay(
@@ -363,7 +370,9 @@ fun PlayerScreen(
 
     val handleBackPress = handleBackPress@{
         if (externalHandoffInProgress) return@handleBackPress
-        if (postPlayRecommendationState.canReturnToPlayer && !uiState.playbackEnded) {
+        if (showLiveMiniGuide) {
+            showLiveMiniGuide = false
+        } else if (postPlayRecommendationState.canReturnToPlayer && !uiState.playbackEnded) {
             returnToPlayerFromPostPlay()
             viewModel.hideControls()
         } else if (postPlayRecommendationState.isVisible || postPlayRecommendationState.isLoadingRecommendation) {
@@ -432,6 +441,32 @@ fun PlayerScreen(
 
     BackHandler {
         handleBackPress()
+    }
+
+    LaunchedEffect(uiState.contentType, liveZapSnapshot?.revision) {
+        if (uiState.contentType != com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE ||
+            liveZapSnapshot?.showOsdAfterTune != true
+        ) {
+            liveOsdVisible = false
+            return@LaunchedEffect
+        }
+        liveOsdVisible = true
+        delay(LIVE_CHANNEL_OSD_DURATION_MS)
+        liveOsdVisible = false
+    }
+
+    LaunchedEffect(showLiveMiniGuide) {
+        if (showLiveMiniGuide) {
+            miniGuideWasOpen = true
+        } else if (miniGuideWasOpen) {
+            miniGuideWasOpen = false
+            delay(100)
+            if (uiState.showControls && uiState.error == null) {
+                runCatching { playPauseFocusRequester.requestFocus() }
+            } else {
+                runCatching { containerFocusRequester.requestFocus() }
+            }
+        }
     }
 
     LaunchedEffect(
@@ -671,6 +706,29 @@ fun PlayerScreen(
                     return@onPreviewKeyEvent true
                 }
 
+                if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_GUIDE &&
+                    uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                    (showLiveMiniGuide || (
+                        !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
+                            !uiState.showChaptersPanel && !uiState.showPartyPanel &&
+                            !uiState.showAudioOverlay && !uiState.showSubtitleOverlay &&
+                            !uiState.showSubtitleStylePanel && !uiState.showSubtitleDelayOverlay &&
+                            !uiState.showSubtitleTimingDialog && !uiState.showSpeedDialog &&
+                            !uiState.showMoreDialog && uiState.error == null
+                        ))
+                ) {
+                    return@onPreviewKeyEvent when (keyEvent.nativeKeyEvent.action) {
+                        KeyEvent.ACTION_DOWN -> true
+                        KeyEvent.ACTION_UP -> {
+                            if (liveZapSnapshot?.channels?.isNotEmpty() == true) {
+                                showLiveMiniGuide = !showLiveMiniGuide
+                            }
+                            true
+                        }
+                        else -> true
+                    }
+                }
+
                 val postPlayHandlesBack = postPlayRecommendationState.isVisible ||
                     postPlayRecommendationState.isLoadingRecommendation ||
                     postPlayRecommendationState.isTrailerPlaying
@@ -832,6 +890,7 @@ fun PlayerScreen(
                         shouldConfirmNextEpisodeOnEnd ||
                         uiState.postPlayMode is PostPlayMode.StillWatching ||
                         postPlayRecommendationState.isVisible ||
+                        showLiveMiniGuide ||
                         uiState.error != null
                 if (panelOrDialogOpen) return@onKeyEvent false
 
@@ -900,7 +959,8 @@ fun PlayerScreen(
                         KeyEvent.KEYCODE_DPAD_UP -> {
                                 if (!uiState.showControls) {
                                     // Live TV: up/down change channel on remotes without CH keys (Fire TV, Chromecast).
-                                    val zapped = uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                    val isLive = uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE
+                                    val zapped = isLive &&
                                         com.nuvio.tv.ui.screens.live.LiveZapSession.zap(forward = true)
                                     if (!zapped) viewModel.onEvent(PlayerEvent.OnToggleControls)
                                 } else {
@@ -927,7 +987,8 @@ fun PlayerScreen(
                             }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (!uiState.showControls) {
-                                val zapped = uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE &&
+                                val isLive = uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE
+                                val zapped = isLive &&
                                     com.nuvio.tv.ui.screens.live.LiveZapSession.zap(forward = false)
                                 if (!zapped) viewModel.onEvent(PlayerEvent.OnToggleControls)
                                 true
@@ -1386,6 +1447,27 @@ fun PlayerScreen(
                 .zIndex(2.6f)
         )
 
+        if (uiState.contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE && uiState.error == null) {
+            liveZapSnapshot?.let { snapshot ->
+                if (liveOsdVisible && !showLiveMiniGuide && !uiState.showLoadingOverlay) {
+                    com.nuvio.tv.ui.screens.live.LiveChannelOsd(snapshot, visible = true)
+                }
+                if (showLiveMiniGuide && !uiState.showLoadingOverlay) {
+                    com.nuvio.tv.ui.screens.live.LiveMiniGuideOverlay(
+                        snapshot = snapshot,
+                        focusRequester = liveMiniGuideFocusRequester,
+                        onDismiss = { showLiveMiniGuide = false },
+                        onTune = { channel ->
+                            if (com.nuvio.tv.ui.screens.live.LiveZapSession.tune(channel)) {
+                                showLiveMiniGuide = false
+                            }
+                        }
+                    )
+                }
+            }
+            com.nuvio.tv.ui.screens.live.LiveNumberEntryOverlay()
+        }
+
         if (uiState.playerStatsHudEnabled && uiState.playerStatsHudButtonAvailable && uiState.error == null) {
             PlayerDebugStatsOverlay(
                 viewModel = viewModel,
@@ -1811,6 +1893,8 @@ fun PlayerScreen(
                     chapters = uiState.chapters,
                     positionMs = chaptersTimeline.currentPosition,
                     durationMs = chaptersTimeline.duration,
+                    artworkUrl = uiState.currentEpisodeThumbnail ?: uiState.backdrop,
+                    loadFrameAt = viewModel.controller::loadTrickplayFrame,
                     focusRequester = chaptersFocusRequester,
                     onChapterSelected = { viewModel.onEvent(PlayerEvent.OnSelectChapter(it)) },
                     onClose = { viewModel.onEvent(PlayerEvent.OnDismissChaptersPanel) },
@@ -3102,7 +3186,28 @@ private fun PlayerControlsProgressBarHost(
     onClick: (() -> Unit)? = null
 ) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
+    val previewPosition = uiState.pendingPreviewSeekPosition
+    if (previewPosition != null) {
+        val chapterIndex = PlayerChapters.indexAt(chapters, previewPosition)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            SeekPreviewCard(
+                positionMs = previewPosition,
+                durationMs = playbackTimeline.duration,
+                title = uiState.currentEpisodeTitle ?: uiState.contentName ?: uiState.title,
+                chapterTitle = chapters.getOrNull(chapterIndex)?.title,
+                loadFrameAt = viewModel.controller::loadTrickplayFrame,
+                artworkUrl = chapters.getOrNull(chapterIndex)?.let {
+                    PlayerChapters.artworkFor(it, uiState.currentEpisodeThumbnail ?: uiState.backdrop)
+                } ?: uiState.currentEpisodeThumbnail ?: uiState.backdrop,
+                modifier = Modifier.padding(bottom = NuvioTheme.spacing.sm)
+            )
+        }
+    }
     ChapterTitle(chapters = chapters, positionMs = playbackTimeline.currentPosition)
     ProgressBar(
         chapters = chapters,
@@ -3496,13 +3601,35 @@ private fun SeekOverlay(
 @Composable
 private fun SeekOverlayHost(viewModel: PlayerViewModel, chapters: List<PlayerChapter>) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
-    SeekOverlay(
-        currentPosition = playbackTimeline.currentPosition,
-        duration = playbackTimeline.duration,
-        bufferedPosition = playbackTimeline.bufferedPosition,
-        chapters = chapters
-    )
+    Column {
+        uiState.pendingPreviewSeekPosition?.let { previewPosition ->
+            val chapterIndex = PlayerChapters.indexAt(chapters, previewPosition)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                SeekPreviewCard(
+                    positionMs = previewPosition,
+                    durationMs = playbackTimeline.duration,
+                    title = uiState.currentEpisodeTitle ?: uiState.contentName ?: uiState.title,
+                    chapterTitle = chapters.getOrNull(chapterIndex)?.title,
+                    loadFrameAt = viewModel.controller::loadTrickplayFrame,
+                    artworkUrl = chapters.getOrNull(chapterIndex)?.let {
+                        PlayerChapters.artworkFor(it, uiState.currentEpisodeThumbnail ?: uiState.backdrop)
+                    } ?: uiState.currentEpisodeThumbnail ?: uiState.backdrop,
+                    modifier = Modifier.padding(bottom = NuvioTheme.spacing.sm)
+                )
+            }
+        }
+        SeekOverlay(
+            currentPosition = playbackTimeline.currentPosition,
+            duration = playbackTimeline.duration,
+            bufferedPosition = playbackTimeline.bufferedPosition,
+            chapters = chapters
+        )
+    }
 }
 
 @Composable
@@ -3620,7 +3747,7 @@ private fun AspectRatioIndicator(text: String) {
             modifier = Modifier
                 .size(36.dp)
                 .background(
-                    color = Color(0xFF3B3B3B),
+                    color = NuvioTheme.colors.BackgroundElevated,
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -3729,13 +3856,13 @@ private fun SubtitleDelayOverlay(
 ) {
     val fraction = ((subtitleDelayMs - SUBTITLE_DELAY_MIN_MS).toFloat() /
         (SUBTITLE_DELAY_MAX_MS - SUBTITLE_DELAY_MIN_MS).toFloat()).coerceIn(0f, 1f)
-    val sliderAccent = if (isSliderFocused) Color(0xFF4AA3FF) else Color.White
+    val sliderAccent = if (isSliderFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.TextPrimary
 
     Column(
         modifier = Modifier
             .fillMaxWidth(0.6f)
             .clip(RoundedCornerShape(26.dp))
-            .background(Color(0xCC0F0F0F))
+            .background(NuvioTheme.colors.PlayerOverlay)
             .padding(horizontal = 26.dp, vertical = 20.dp)
     ) {
         Row(
@@ -4025,8 +4152,8 @@ private fun ErrorOverlay(
                     style = MaterialTheme.typography.bodyMedium,
                     color = when (reportStatus) {
                         PlaybackIssueReportStatus.Sent -> NuvioTheme.colors.Secondary
-                        PlaybackIssueReportStatus.Failed -> Color(0xFFFF8A80)
-                        else -> Color.White.copy(alpha = 0.7f)
+                        PlaybackIssueReportStatus.Failed -> NuvioTheme.colors.Error
+                        else -> NuvioTheme.colors.TextSecondary
                     },
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxl)

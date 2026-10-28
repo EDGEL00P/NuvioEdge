@@ -327,8 +327,8 @@ private fun LinkedDevicesSection(
                         colors = ButtonDefaults.colors(
                             containerColor = NuvioPrimitives.red600.copy(alpha = 0.2f),
                             focusedContainerColor = NuvioPrimitives.red600.copy(alpha = 0.4f),
-                            contentColor = Color(0xFFF44336),
-                            focusedContentColor = Color(0xFFF44336)
+                            contentColor = NuvioTheme.colors.Error,
+                            focusedContentColor = NuvioTheme.colors.Error
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(NuvioTheme.radii.sm))
                     ) {
@@ -354,8 +354,8 @@ private fun SignOutButton(onClick: () -> Unit) {
         colors = ButtonDefaults.colors(
             containerColor = NuvioPrimitives.red600.copy(alpha = 0.15f),
             focusedContainerColor = NuvioPrimitives.red600.copy(alpha = 0.3f),
-            contentColor = Color(0xFFF44336),
-            focusedContentColor = Color(0xFFF44336)
+                            contentColor = NuvioTheme.colors.Error,
+                            focusedContentColor = NuvioTheme.colors.Error
         ),
         shape = ButtonDefaults.shape(RoundedCornerShape(NuvioTheme.radii.md))
     ) {

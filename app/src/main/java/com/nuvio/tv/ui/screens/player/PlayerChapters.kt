@@ -6,7 +6,8 @@ import androidx.compose.runtime.Immutable
 @Immutable
 data class PlayerChapter(
     val startMs: Long,
-    val title: String?
+    val title: String?,
+    val artworkUrl: String? = null
 )
 
 internal object PlayerChapters {
@@ -29,6 +30,10 @@ internal object PlayerChapters {
     /** Index of the chapter playing at [positionMs], or -1 before the first one starts. */
     fun indexAt(chapters: List<PlayerChapter>, positionMs: Long): Int =
         chapters.indexOfLast { it.startMs <= positionMs }
+
+    fun artworkFor(chapter: PlayerChapter, fallbackArtworkUrl: String?): String? =
+        chapter.artworkUrl?.takeIf { it.isNotBlank() }
+            ?: fallbackArtworkUrl?.takeIf { it.isNotBlank() }
 
     fun nextStartMs(chapters: List<PlayerChapter>, positionMs: Long): Long? =
         chapters.firstOrNull { it.startMs > positionMs }?.startMs

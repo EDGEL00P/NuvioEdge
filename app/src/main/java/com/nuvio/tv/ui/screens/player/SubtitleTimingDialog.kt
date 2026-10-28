@@ -111,9 +111,9 @@ internal fun SubtitleTimingDialog(
             .clip(RoundedCornerShape(NuvioTheme.spacing.xl))
             .background(
                 if (stage == SyncStage.PICK_LINE) {
-                    Color(0x2E090909)
+                    NuvioTheme.colors.PlayerOverlay.copy(alpha = 0.18f)
                 } else {
-                    Color(0x47090909)
+                    NuvioTheme.colors.PlayerOverlay.copy(alpha = 0.28f)
                 }
             )
             .padding(
@@ -245,7 +245,7 @@ private fun CueSelectionPanel(
             Text(
                 text = statusMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF9BE2AF)
+                color = NuvioTheme.colors.Success
             )
         }
 
@@ -253,7 +253,7 @@ private fun CueSelectionPanel(
             Text(
                 text = errorMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFFFB37A)
+                color = NuvioTheme.colors.Warning
             )
             return
         }
@@ -262,7 +262,7 @@ private fun CueSelectionPanel(
             Text(
                 text = stringResource(R.string.subtitle_timing_select_addon_first),
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB37A)
+                color = NuvioTheme.colors.Warning
             )
             return
         }

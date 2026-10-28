@@ -65,3 +65,14 @@ docs/
 status-page/
 
 .fake
+# Vibe Code Assistant - AI Instructions & Prompts
+# Auto-generated AI guidance files - excluded from version control
+.github/instructions/
+.github/prompts/
+.vscode/
+how-to-guides/
+.github/copilot-instructions.md
+
+# Note: These files enhance GitHub Copilot with project-specific guidance.
+# They are excluded to keep your repository clean and focused on your code.
+# The extension will recreate them as needed when analyzing code.

@@ -177,6 +177,9 @@ import com.nuvio.tv.domain.deeplink.AppDeepLink
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.ui.components.NuvioScrollDefaults
 import com.nuvio.tv.ui.components.BrandWordmark
+import com.nuvio.tv.ui.components.sidebar.DrawerItem
+import com.nuvio.tv.ui.components.sidebar.ModernSidebarBlurPanel
+import com.nuvio.tv.ui.components.sidebar.rememberDrawerItemFocusRequesters
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.LocalLandscapePosterMode
 import com.nuvio.tv.ui.components.LocalAlwaysBackdropWithLogo
@@ -202,7 +205,6 @@ import com.nuvio.tv.ui.theme.accentBrush
 import com.nuvio.tv.ui.theme.brandWordmarkResource
 import com.nuvio.tv.ui.util.LocalFastHorizontalNavigationEnabled
 import com.nuvio.tv.ui.util.LocalRecompositionHighlighterEnabled
-import com.nuvio.tv.ui.util.rememberDrawerItemFocusRequesters
 import com.nuvio.tv.ui.util.rememberRawSvgPainter
 import com.nuvio.tv.updater.UpdateViewModel
 import com.nuvio.tv.updater.ui.UpdateBannerHost
@@ -234,13 +236,6 @@ val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 3_000L
 
 private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
-
-data class DrawerItem(
-    val route: String,
-    val label: String,
-    val iconRes: Int? = null,
-    val icon: ImageVector? = null
-)
 
 private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,

@@ -121,7 +121,7 @@ fun AboutSettingsContent(
 
                             MemberBrandWordmark(
                                 height = 40.dp,
-                                contentDescription = stringResource(R.string.cd_nuvio_logo)
+                                contentDescription = stringResource(R.string.app_name)
                             )
 
                             Text(

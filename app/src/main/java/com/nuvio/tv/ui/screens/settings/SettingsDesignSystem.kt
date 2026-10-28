@@ -284,7 +284,7 @@ internal fun SettingsBrandPanel(
         Spacer(modifier = Modifier.height(26.dp))
 
         BrandWordmark(
-            contentDescription = stringResource(R.string.cd_nuvio_logo),
+            contentDescription = stringResource(R.string.app_name),
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .height(72.dp),

@@ -155,8 +155,8 @@ private fun StreamFileSizeBadge(bytes: Long) {
         modifier = Modifier
             .height(20.dp)
             .clip(BadgeChipShape)
-            .background(Color(0xFF0A0C0C), BadgeChipShape)
-            .border(NuvioTheme.spacing.hairline, Color(0xFF0A0C0C), BadgeChipShape)
+            .background(NuvioTheme.colors.BackgroundCard, BadgeChipShape)
+            .border(NuvioTheme.spacing.hairline, NuvioTheme.colors.BorderMuted, BadgeChipShape)
             .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center
     ) {

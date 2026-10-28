@@ -43,8 +43,8 @@ import com.nuvio.tv.data.repository.PlaybackIssueErrorInput
 import com.nuvio.tv.data.repository.PlaybackIssueReportRepository
 import com.nuvio.tv.data.repository.SkipIntroRepository
 import com.nuvio.tv.data.repository.SkipInterval
-import com.nuvio.tv.data.repository.EpisodeMappingEntry
-import com.nuvio.tv.data.repository.TraktEpisodeMappingService
+import com.nuvio.tv.data.repository.trakt.EpisodeMappingEntry
+import com.nuvio.tv.data.repository.trakt.TraktEpisodeMappingService
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
@@ -187,6 +187,13 @@ class PlayerRuntimeController(
     internal val backdrop: String? = navigationArgs.backdrop
     internal val logo: String? = navigationArgs.logo
     internal val videoId: String? = navigationArgs.videoId
+    internal val trackPreferenceOwnerProfileId: Int = navigationArgs.profileId ?: trackPreferenceDataStore.activeProfileId
+    internal val trackPreferenceStorageKey: String? =
+        if (contentType == com.nuvio.tv.ui.screens.live.LIVE_CONTENT_TYPE) {
+            videoId?.takeIf { it.startsWith("iptv:") }
+        } else {
+            contentId
+        }
     internal val initialSeason: Int? = navigationArgs.initialSeason
     internal val initialEpisode: Int? = navigationArgs.initialEpisode
     internal val initialEpisodeTitle: String? = navigationArgs.initialEpisodeTitle
@@ -218,6 +225,7 @@ class PlayerRuntimeController(
     private val playerSession = com.nuvio.tv.core.player.PlayerSessionTracker.open()
 
     internal var currentVideoHash: String? = navigationArgs.videoHash
+    internal val trickplayFrameLoader = PlayerTrickplayFrameLoader()
     internal var currentVideoSize: Long? = navigationArgs.videoSize
     internal var currentFilename: String? = navigationArgs.filename
         ?: streamFilenameFromUrl(initialStreamUrl)
@@ -257,8 +265,12 @@ class PlayerRuntimeController(
     fun getCurrentStreamUrl(): String = currentStreamUrl
     fun getCurrentHeaders(): Map<String, String> = currentHeaders
 
+    internal suspend fun loadTrickplayFrame(positionMs: Long): android.graphics.Bitmap? =
+        trickplayFrameLoader.frameAt(currentStreamUrl, currentHeaders, positionMs)
+
     fun stopAndRelease() {
         leavePartyPlayback()
+        trickplayFrameLoader.clear()
         // Cache counters only reach the card on a natural finish, so capture them when the user exits too.
         val diagnostics = lastPlaybackDiagnosticsForReport
         if (diagnostics.timestampMs > 0L) {

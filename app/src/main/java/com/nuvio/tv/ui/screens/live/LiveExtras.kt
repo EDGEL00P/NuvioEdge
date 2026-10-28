@@ -171,7 +171,7 @@ fun LiveNumberEntryOverlay() {
             fontSize = 48.sp,
             fontWeight = FontWeight.Black,
             modifier = Modifier
-                .background(Color(0xCC0A0F1C), RoundedCornerShape(12.dp))
+                .background(NuvioTheme.colors.PlayerOverlay, RoundedCornerShape(12.dp))
                 .padding(horizontal = 24.dp, vertical = 8.dp)
         )
     }

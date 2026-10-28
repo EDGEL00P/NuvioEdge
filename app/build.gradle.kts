@@ -119,11 +119,11 @@ val useLocalFfmpegDecoder = truthy(
 val releaseStoreFilePath = env("NUVIO_RELEASE_STORE_FILE")
     ?: localProperties.getProperty("NUVIO_RELEASE_STORE_FILE")
 val releaseKeyAliasValue = env("NUVIO_RELEASE_KEY_ALIAS")
-    ?: localProperties.getProperty("NUVIO_RELEASE_KEY_ALIAS", "nuviotv")
+    ?: localProperties.getProperty("NUVIO_RELEASE_KEY_ALIAS")
 val releaseKeyPasswordValue = env("NUVIO_RELEASE_KEY_PASSWORD")
-    ?: localProperties.getProperty("NUVIO_RELEASE_KEY_PASSWORD", "815787")
+    ?: localProperties.getProperty("NUVIO_RELEASE_KEY_PASSWORD")
 val releaseStorePasswordValue = env("NUVIO_RELEASE_STORE_PASSWORD")
-    ?: localProperties.getProperty("NUVIO_RELEASE_STORE_PASSWORD", "815787")
+    ?: localProperties.getProperty("NUVIO_RELEASE_STORE_PASSWORD")
 
 android {
     namespace = "com.nuvio.tv"
@@ -215,16 +215,16 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = releaseKeyAliasValue
-            keyPassword = releaseKeyPasswordValue
-            storeFile = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
-            storePassword = releaseStorePasswordValue
+            keyAlias = releaseKeyAliasValue.orEmpty()
+            keyPassword = releaseKeyPasswordValue.orEmpty()
+            storeFile = releaseStoreFilePath?.let(::file)
+            storePassword = releaseStorePasswordValue.orEmpty()
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("debug")
             isDebuggable = parseBooleanProperty(providers.gradleProperty("debuggable").orNull)
             isMinifyEnabled = false
 
@@ -361,6 +361,17 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+}
+
+val copyFullDebugUniversalApk = tasks.register<Copy>("copyFullDebugUniversalApk") {
+    dependsOn("packageFullDebug")
+    from(layout.buildDirectory.file("outputs/apk/full/debug/app-full-universal-debug.apk"))
+    into(layout.buildDirectory.dir("outputs/device-test"))
+    rename { "NuvioEdge.apk" }
+}
+
+tasks.matching { it.name == "assembleFullDebug" }.configureEach {
+    finalizedBy(copyFullDebugUniversalApk)
 }
 
 androidComponents {

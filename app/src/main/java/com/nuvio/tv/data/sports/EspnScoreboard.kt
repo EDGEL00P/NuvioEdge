@@ -99,7 +99,8 @@ data class TeamLine(
     /** "Pittsburgh Steelers"; null for players. */
     val fullName: String? = null,
     /** "Steelers"; null for players. */
-    val shortName: String? = null
+    val shortName: String? = null,
+    val providerId: String? = null
 )
 
 /** One row of a leaderboard: position ("1", "T2"), name, score ("-16", "E"), if any. */
@@ -131,6 +132,14 @@ data class TickerGame(
     val event: String? = null,
     /** Top of the leaderboard, for golf and racing. */
     val leaders: List<LeaderLine> = emptyList()
+)
+
+internal fun TickerGame.withoutScores(): TickerGame = copy(
+    away = away.copy(score = null, winner = false),
+    home = home.copy(score = null, winner = false),
+    status = "",
+    odds = null,
+    leaders = emptyList()
 )
 
 /** Parses ESPN's site API scoreboard JSON. Unknown or missing fields are skipped, never fatal. */
@@ -310,6 +319,10 @@ object EspnScoreboardParser {
 
     private val zoneHolder = ThreadLocal<ZoneId>()
     private val clockTime = Regex("""\b\d{1,2}:\d{2}\s?(AM|PM)\b""", RegexOption.IGNORE_CASE)
+    private val START_TIME_FORMAT: DateTimeFormatter = java.time.format.DateTimeFormatterBuilder()
+        .appendPattern("EEE h:mm ")
+        .appendText(java.time.temporal.ChronoField.AMPM_OF_DAY, mapOf(0L to "AM", 1L to "PM"))
+        .toFormatter(Locale.ENGLISH)
 
     private inline fun <T> withZone(zone: ZoneId, block: () -> T): T {
         zoneHolder.set(zone)
@@ -328,8 +341,9 @@ object EspnScoreboardParser {
         val text = statusText(statusType)
         if (statusType?.str("state") != "pre" || startIso == null || !clockTime.containsMatchIn(text)) return text
         return runCatching {
+            // Pin the AM/PM marker: newer CLDR data (JDK 21+/Android 14+) renders "a" as "am"/"pm" by default.
             OffsetDateTime.parse(startIso).atZoneSameInstant(zoneHolder.get() ?: ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("EEE h:mm a", Locale.getDefault()))
+                .format(START_TIME_FORMAT)
         }.getOrDefault(text)
     }
 
@@ -346,7 +360,8 @@ object EspnScoreboardParser {
         score = competitor.str("score"),
         winner = competitor.bool("winner"),
         fullName = competitor.obj("team")?.str("displayName"),
-        shortName = competitor.obj("team")?.let { it.str("shortDisplayName") ?: it.str("name") }
+        shortName = competitor.obj("team")?.let { it.str("shortDisplayName") ?: it.str("name") },
+        providerId = competitor.obj("team")?.str("id")
     )
 
     private fun athleteLine(competitor: JsonObject, score: String?) =

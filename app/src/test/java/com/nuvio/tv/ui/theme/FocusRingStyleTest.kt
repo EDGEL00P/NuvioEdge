@@ -13,7 +13,7 @@ class FocusRingStyleTest {
     fun standardThemeUsesItsSolidFocusColor() {
         val style = createFocusRingStyle(ThemeColors.Ocean)
 
-        assertEquals(Color(0xFF42A5F5), style.solidColor)
+        assertEquals(ThemeColors.Ocean.focusRing, style.solidColor)
         assertTrue(style.brush() is SolidColor)
     }
 

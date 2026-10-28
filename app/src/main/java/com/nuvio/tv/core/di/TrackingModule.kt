@@ -8,13 +8,13 @@ import com.nuvio.tv.data.simkl.SimklSyncRemote
 import com.nuvio.tv.data.simkl.SimklSyncStorage
 import com.nuvio.tv.core.tracking.TrackingLibraryProvider
 import com.nuvio.tv.core.tracking.TrackingProvider
-import com.nuvio.tv.data.repository.TraktTrackingLibraryProvider
-import com.nuvio.tv.data.repository.TraktTrackingProvider
+import com.nuvio.tv.data.repository.trakt.TraktTrackingLibraryProvider
+import com.nuvio.tv.data.repository.trakt.TraktTrackingProvider
 import com.nuvio.tv.data.simkl.SimklLibraryService
 import com.nuvio.tv.core.tracking.TrackingHistoryWriter
 import com.nuvio.tv.core.tracking.TrackingProgressProvider
-import com.nuvio.tv.data.repository.TraktTrackingHistoryWriter
-import com.nuvio.tv.data.repository.TraktTrackingProgressProvider
+import com.nuvio.tv.data.repository.trakt.TraktTrackingHistoryWriter
+import com.nuvio.tv.data.repository.trakt.TraktTrackingProgressProvider
 import com.nuvio.tv.data.simkl.SimklTrackingHistoryWriter
 import com.nuvio.tv.data.simkl.SimklTrackingProgressProvider
 import com.nuvio.tv.data.simkl.SimklTrackingProvider

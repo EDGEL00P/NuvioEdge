@@ -10,8 +10,8 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktMovieDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktProminentListDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktSearchResultDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktShowDto
-import com.nuvio.tv.data.repository.TraktAuthService
-import com.nuvio.tv.data.repository.normalizeContentId
+import com.nuvio.tv.data.repository.trakt.TraktAuthService
+import com.nuvio.tv.data.repository.trakt.normalizeContentId
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview

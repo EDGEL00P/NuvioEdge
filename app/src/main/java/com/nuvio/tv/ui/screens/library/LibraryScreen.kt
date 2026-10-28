@@ -1563,7 +1563,7 @@ private fun ConfirmDeleteDialog(
                 onClick = onConfirm,
                 enabled = !pending,
                 colors = ButtonDefaults.colors(
-                    containerColor = Color(0xFF4A2323),
+                    containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
                     contentColor = NuvioTheme.colors.TextPrimary
                 )
             ) {

@@ -58,7 +58,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.core.qr.QrCodeGenerator
-import com.nuvio.tv.data.repository.TraktProgressService
+import com.nuvio.tv.data.repository.trakt.TraktProgressService
 import com.nuvio.tv.data.simkl.SIMKL_AUTOMATIC_REFRESH_INTERVAL_MINUTES
 import com.nuvio.tv.data.simkl.SimklConnectionMode
 import com.nuvio.tv.ui.components.LoadingIndicator

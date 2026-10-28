@@ -50,8 +50,8 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
         )
         refreshScrobbleItem()
         if (persistedTrackPreference == null) {
-            contentId?.let { id ->
-                val loaded = trackPreferenceDataStore.load(id)?.toTrackPreference()
+            trackPreferenceStorageKey?.let { id ->
+                val loaded = trackPreferenceDataStore.load(id, trackPreferenceOwnerProfileId)?.toTrackPreference()
                 logSwitchTrace(
                     stage = "track-pref-load",
                     message = "contentId=$id loadedAudio=${loaded?.audio?.language}/${loaded?.audio?.name} " +
@@ -63,22 +63,7 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
                         "result=${if (loaded == null) "null (no saved preference)" else "audio=${loaded.audio?.language}/${loaded.audio?.name} subtitle=${loaded.subtitle?.javaClass?.simpleName}"}"
                 )
                 persistedTrackPreference = loaded
-            } ?: Log.d(PlayerRuntimeController.TAG, "TRACK_PREF load: skipped (contentId is null)")
-            // Subtitle delay is keyed per-videoId, so it is loaded separately
-            // from the track selection above. This happens before
-            // initializePlayer() because the renderers factory snapshots
-            // subtitleDelayUs from _uiState.value.subtitleDelayMs on build.
-            currentVideoId?.takeIf { it.isNotBlank() }?.let { vid ->
-                val savedDelayMs = trackPreferenceDataStore.loadSubtitleDelayMs(vid)
-                if (savedDelayMs != null && savedDelayMs != 0) {
-                    subtitleDelayUs.set(savedDelayMs.toLong() * 1000L)
-                    _uiState.update { it.copy(subtitleDelayMs = savedDelayMs) }
-                    Log.d(
-                        PlayerRuntimeController.TAG,
-                        "TRACK_PREF load: restored subtitleDelayMs=$savedDelayMs for videoId=$vid"
-                    )
-                }
-            }
+            } ?: Log.d(PlayerRuntimeController.TAG, "TRACK_PREF load: skipped (preference identity is null)")
         } else {
             Log.d(
                 PlayerRuntimeController.TAG,
@@ -93,8 +78,14 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
                     "subtitle=${persistedTrackPreference?.subtitle?.javaClass?.simpleName ?: "none"}"
             )
         }
+        currentVideoId?.takeIf { it.isNotBlank() }?.let { vid ->
+            val delayKey = subtitleDelayStorageKey(vid)
+            val savedDelayMs = trackPreferenceDataStore.loadSubtitleDelayMs(delayKey, trackPreferenceOwnerProfileId) ?: 0
+            subtitleDelayUs.set(savedDelayMs.toLong() * 1000L)
+            _uiState.update { it.copy(subtitleDelayMs = savedDelayMs) }
+        }
         contentId?.takeIf { it.isNotBlank() }?.let { id ->
-            trackPreferenceDataStore.loadPlaybackSpeed(id)?.let { speed ->
+            trackPreferenceDataStore.loadPlaybackSpeed(id, trackPreferenceOwnerProfileId)?.let { speed ->
                 _uiState.update { it.copy(playbackSpeed = speed) }
             }
         }
@@ -121,6 +112,16 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
         initializePlayer(playbackUrl, playbackHeaders)
     }
 }
+
+internal fun PlayerRuntimeController.subtitleDelayStorageKey(videoId: String): String =
+    com.nuvio.tv.data.local.TrackPreferenceDataStore.subtitleDelayStorageKey(
+        videoId = videoId,
+        videoHash = currentVideoHash,
+        videoSize = currentVideoSize,
+        filename = currentFilename,
+        infoHash = _uiState.value.currentStreamInfoHash,
+        fileIndex = _uiState.value.currentStreamFileIdx
+    )
 
 private fun String.safeScrobbleHost(): String {
     return runCatching {

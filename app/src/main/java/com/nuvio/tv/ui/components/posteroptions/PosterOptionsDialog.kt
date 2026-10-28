@@ -147,7 +147,7 @@ fun PosterListPickerDialog(
             Text(
                 text = error,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB6B6)
+                        color = NuvioTheme.colors.Error
             )
         }
 

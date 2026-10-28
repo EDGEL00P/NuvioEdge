@@ -3,7 +3,7 @@ package com.nuvio.tv.ui.util
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.focus.FocusRequester
-import com.nuvio.tv.DrawerItem
+import com.nuvio.tv.ui.components.sidebar.DrawerItem
 
 internal fun <T> syncRouteMap(
     existing: MutableMap<String, T>,

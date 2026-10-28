@@ -1127,7 +1127,7 @@ fun MetaDetailsScreen(
                     .padding(top = NuvioTheme.spacing.xl)
                     .background(
                         color = if (uiState.userMessageIsError) {
-                            Color(0xFF5A1C1C)
+                                NuvioTheme.colors.Error.copy(alpha = 0.18f)
                         } else {
                             NuvioTheme.colors.BackgroundElevated
                         },
@@ -3485,7 +3485,7 @@ private fun LibraryListPickerDialog(
             Text(
                 text = error,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB6B6)
+                        color = NuvioTheme.colors.Error
             )
         }
 

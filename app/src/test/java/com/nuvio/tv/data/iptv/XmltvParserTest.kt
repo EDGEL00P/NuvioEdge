@@ -43,8 +43,36 @@ class XmltvParserTest {
         assertEquals(now, XmltvParser.parseXmltvTime("20261024200000 +1000"))
         assertEquals(now, XmltvParser.parseXmltvTime("20261024100000"))
         assertEquals(now, XmltvParser.parseXmltvTime("20261024053000 -0430"))
+        assertEquals(now, XmltvParser.parseXmltvTime("20261024053000 -04:30"))
         assertEquals(now, XmltvParser.parseXmltvTime("202610241000"))
         assertNull(XmltvParser.parseXmltvTime("garbage"))
+    }
+
+      @Test
+      fun `rejects incomplete or trailing timestamp and offset data`() {
+        listOf(
+          "20261024100000 +1",
+          "20261024100000 +12345",
+          "20261024100000 +12:3",
+          "20261024100000 +1234junk",
+          "20261024100000 trailing",
+          "2026102410000",
+          "202610241000xx"
+        ).forEach { value -> assertNull(value, XmltvParser.parseXmltvTime(value)) }
+      }
+
+    @Test
+    fun `rejects impossible dates and offsets instead of shifting them`() {
+        assertNull(XmltvParser.parseXmltvTime("20260231120000 +0000"))
+        assertNull(XmltvParser.parseXmltvTime("20260229120000 +0000"))
+        assertNull(XmltvParser.parseXmltvTime("20260431120000 +0000"))
+        assertNull(XmltvParser.parseXmltvTime("20261024120000 +2500"))
+        assertNull(XmltvParser.parseXmltvTime("20261024120000 +0960"))
+        assertNull(XmltvParser.parseXmltvTime("20261024120000 -1430"))
+        // Leap day and the ±14:00 extremes are legitimate.
+        assertEquals(XmltvParser.parseXmltvTime("20240301000000 +0000")!! - 86_400_000L, XmltvParser.parseXmltvTime("20240229000000 +0000"))
+        assertEquals(XmltvParser.parseXmltvTime("20261024000000 +0000")!! - 14 * 3_600_000L, XmltvParser.parseXmltvTime("20261024000000 +1400"))
+        assertEquals(XmltvParser.parseXmltvTime("20261024000000 +0000")!! + 12 * 3_600_000L, XmltvParser.parseXmltvTime("20261024000000 -1200"))
     }
 
     @Test
@@ -52,14 +80,234 @@ class XmltvParserTest {
         val result = XmltvParser(now).parse(
             xml.byteInputStream(),
             wantedIds = setOf("bbc1.uk"),
-            wantedNames = setOf(XmltvParser.normalizeChannelName("Sky News"))
+            wantedNames = setOf(
+                XmltvParser.normalizeChannelName("Sky News"),
+                XmltvParser.normalizeChannelName("BBC One")
+            )
         )
         val bbc = result.programmes.getValue("bbc1.uk")
         assertEquals(listOf("Morning Show", "Evening News"), bbc.map { it.title })
         assertEquals("Headlines & weather", bbc[1].description)
         assertTrue(result.programmes.containsKey("sky.news"))
         assertFalse(result.programmes.containsKey("other"))
-        assertEquals("bbc1.uk", result.channelIdsByName[XmltvParser.normalizeChannelName("BBC One")])
+        assertEquals(setOf("bbc1.uk"), result.channelIdsByName[XmltvParser.normalizeChannelName("BBC One")])
+        assertEquals(setOf("Other"), result.displayNamesByChannelId["other"])
+    }
+
+    @Test
+    fun `exact guide id wins and unmatched id falls back to one name candidate`() {
+        val guide = """<tv>
+          <channel id="correct"><display-name>BBC One</display-name></channel>
+          <channel id="other"><display-name>Other</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="correct"><title>BBC</title></programme>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="other"><title>Other</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(
+            guide.byteInputStream(),
+            wantedIds = setOf("wrong-id", "correct"),
+            wantedNames = setOf("bbcone")
+        )
+
+        assertEquals("correct", result.resolveGuideId("correct", listOf("Other")))
+        assertEquals("correct", result.resolveGuideId("wrong-id", listOf("BBC One")))
+        assertEquals(EpgMatchKind.EXACT_ID, result.resolveGuide("correct", listOf("Other")).kind)
+        assertEquals(EpgMatchKind.NAME, result.resolveGuide("wrong-id", listOf("BBC One")).kind)
+    }
+
+    @Test
+    fun `unrelated numeric provider id falls back to a unique channel name`() {
+        val guide = """<tv>
+          <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="bbc1.uk"><title>BBC</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(
+            guide.byteInputStream(),
+            wantedIds = setOf("987654"),
+            wantedNames = setOf("bbcone")
+        )
+
+        assertEquals("bbc1.uk", result.resolveGuideId("987654", listOf("BBC One")))
+    }
+
+    @Test
+    fun `provider id differing only by case or whitespace still matches the declared id`() {
+        val guide = """<tv>
+          <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+          <channel id="itv.uk"><display-name>ITV</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="bbc1.uk"><title>BBC</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedIds = setOf("BBC1.UK ", " Itv.Uk"))
+
+        val bbc = result.resolveGuide("BBC1.UK ", listOf("Something Else"))
+        assertEquals("bbc1.uk", bbc.guideId)
+        assertEquals(EpgMatchKind.EXACT_ID, bbc.kind)
+        assertEquals(listOf("BBC"), result.programmes.getValue("bbc1.uk").map { it.title })
+        assertEquals("itv.uk", result.canonicalDeclaredId(" Itv.Uk"))
+        // Manual overrides get the same leniency so a saved id survives a provider re-casing it.
+        assertEquals(EpgMatchKind.MANUAL, result.resolveGuide("bbc1.UK", emptyList(), manualOverride = true).kind)
+    }
+
+    @Test
+    fun `case-folded id is not used when two declared ids collide after folding`() {
+        val guide = """<tv>
+          <channel id="News.UK"><display-name>News UK</display-name></channel>
+          <channel id="news.uk"><display-name>News UK Plus</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="News.UK"><title>A</title></programme>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.uk"><title>B</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedIds = setOf("NEWS.UK"))
+
+        assertNull(result.canonicalDeclaredId("NEWS.UK"))
+        assertEquals(EpgMatchKind.UNMATCHED, result.resolveGuide("NEWS.UK", emptyList()).kind)
+        // An exact spelling is still honoured even though the folded forms collide.
+        assertEquals("news.uk", result.resolveGuideId("news.uk", emptyList()))
+    }
+
+      @Test
+      fun `manual guide override is explicit and invalid override does not auto match`() {
+        val guide = """<tv>
+          <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+          <channel id="bbc2.uk"><display-name>BBC One</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="bbc1.uk"><title>BBC One</title></programme>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="bbc2.uk"><title>BBC Two</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(
+          guide.byteInputStream(),
+          wantedIds = setOf("bbc2.uk"),
+          wantedNames = setOf("bbcone")
+        )
+
+        val selected = result.resolveGuide("bbc2.uk", listOf("BBC One"), manualOverride = true)
+        assertEquals("bbc2.uk", selected.guideId)
+        assertEquals(EpgMatchKind.MANUAL, selected.kind)
+        assertNull(result.resolveGuide("missing-manual-id", listOf("BBC One"), manualOverride = true).guideId)
+      }
+
+    @Test
+    fun `ambiguous normalized names are not auto matched`() {
+        val guide = """<tv>
+          <channel id="news.uk"><display-name>News</display-name></channel>
+          <channel id="news.hk"><display-name>News</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.uk"><title>UK</title></programme>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.hk"><title>HK</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedNames = setOf("news"))
+
+        assertEquals(setOf("news.uk", "news.hk"), result.channelIdsByName["news"])
+        assertNull(result.resolveGuideId(null, listOf("News")))
+        assertEquals(EpgMatchKind.AMBIGUOUS, result.resolveGuide(null, listOf("News")).kind)
+    }
+
+      @Test
+      fun `name collision stays ambiguous when only one channel has an in-window programme`() {
+        val guide = """<tv>
+          <channel id="news.uk"><display-name>News</display-name></channel>
+          <channel id="news.hk"><display-name>News</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.uk"><title>UK</title></programme>
+          <programme start="20261020090000 +0000" stop="20261020110000 +0000" channel="news.hk"><title>HK</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedNames = setOf("news"))
+
+        assertTrue(result.programmes.containsKey("news.uk"))
+        assertFalse(result.programmes.containsKey("news.hk"))
+        assertEquals(setOf("news.uk", "news.hk"), result.channelIdsByName["news"])
+        assertNull(result.resolveGuideId(null, listOf("News")))
+      }
+
+    @Test
+    fun `declared exact id without an in-window programme stays mapped without borrowing another channel`() {
+        val guide = """<tv>
+          <channel id="exact"><display-name>BBC One</display-name></channel>
+          <channel id="other"><display-name>BBC One</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="other"><title>Other</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedIds = setOf("exact"), wantedNames = setOf("bbcone"))
+
+        assertEquals("exact", result.resolveGuideId("exact", listOf("BBC One")))
+    }
+
+    @Test
+    fun `ambiguous stronger name does not fall back to weaker channel name`() {
+        val guide = """<tv>
+          <channel id="news.uk"><display-name>Provider News</display-name></channel>
+          <channel id="news.hk"><display-name>Provider News</display-name></channel>
+          <channel id="news.us"><display-name>Channel News</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.uk"><title>UK</title></programme>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.hk"><title>HK</title></programme>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="news.us"><title>US</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedNames = setOf("providernews", "channelnews"))
+
+        assertNull(result.resolveGuideId(null, listOf("Provider News", "Channel News")))
+    }
+
+    @Test
+    fun `unmatched tvg name falls back to channel display name`() {
+        val guide = """<tv>
+          <channel id="bbc"><display-name>BBC One</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="bbc"><title>BBC</title></programme>
+        </tv>"""
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedNames = setOf("providername", "bbcone"))
+
+        assertEquals("bbc", result.resolveGuideId(null, listOf("Provider Name", "BBC One")))
+    }
+
+    @Test
+    fun `name normalization removes quality tags but preserves region labels`() {
+        assertEquals(XmltvParser.normalizeChannelName("BBC One"), XmltvParser.normalizeChannelName("BBC One HD"))
+        assertEquals(XmltvParser.normalizeChannelName("BBC One"), XmltvParser.normalizeChannelName("BBC One [HD]"))
+        assertTrue(XmltvParser.normalizeChannelName("BBC One UK") != XmltvParser.normalizeChannelName("BBC One US"))
+    }
+
+    @Test
+    fun `provider prefix stripping is conservative`() {
+        assertEquals("BBC One", XmltvParser.stripProviderPrefix("UK: BBC One"))
+        assertEquals("BBC One", XmltvParser.stripProviderPrefix("UK | BBC One"))
+        assertEquals("BBC One", XmltvParser.stripProviderPrefix("UK - BBC One"))
+        assertEquals("CCTV-1", XmltvParser.stripProviderPrefix("[CN] CCTV-1"))
+        assertEquals("CCTV-1", XmltvParser.stripProviderPrefix("|CN| CCTV-1"))
+        assertEquals("\u4e2d\u592e\u4e00\u53f0", XmltvParser.stripProviderPrefix("\u4e2d\u56fd\uff1a\u4e2d\u592e\u4e00\u53f0"))
+        assertNull(XmltvParser.stripProviderPrefix("BBC One"))
+        assertNull(XmltvParser.stripProviderPrefix("UK"))
+        assertNull(XmltvParser.stripProviderPrefix("UK:"))
+        // A long leading word is a name, not a tag.
+        assertNull(XmltvParser.stripProviderPrefix("Discovery: Science"))
+        assertEquals(listOf("ukbbcone", "bbcone"), XmltvParser.candidateNames(null, "UK: BBC One"))
+    }
+
+    @Test
+    fun `prefixed playlist name matches only after stricter names fail and stays ambiguous on collisions`() {
+        val guide = """<tv>
+          <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+          <channel id="news.uk"><display-name>News</display-name></channel>
+          <channel id="news.us"><display-name>News</display-name></channel>
+          <channel id="tagged"><display-name>UK: Sky Sports</display-name></channel>
+          <channel id="plain"><display-name>Sky Sports</display-name></channel>
+          <programme start="20261024090000 +0000" stop="20261024110000 +0000" channel="bbc1.uk"><title>BBC</title></programme>
+        </tv>"""
+        val wanted = listOf("UK: BBC One", "UK: News", "UK: Sky Sports").flatMap { XmltvParser.candidateNames(null, it) }.toSet()
+        val result = XmltvParser(now).parse(guide.byteInputStream(), wantedNames = wanted)
+
+        val bbc = result.resolveGuide(null, listOf("UK: BBC One"))
+        assertEquals("bbc1.uk", bbc.guideId)
+        assertEquals(EpgMatchKind.NAME, bbc.kind)
+        assertEquals(listOf("BBC"), result.programmes.getValue("bbc1.uk").map { it.title })
+        // Two guide channels share the stripped name: never guess between regions.
+        assertEquals(EpgMatchKind.AMBIGUOUS, result.resolveGuide(null, listOf("UK: News")).kind)
+        // The exact tagged spelling exists in the guide, so the stricter tier wins over the stripped one.
+        assertEquals("tagged", result.resolveGuideId(null, listOf("UK: Sky Sports")))
+    }
+
+    @Test
+    fun `name normalization keeps CJK and full-width text comparable`() {
+        // Full-width Latin/digits fold to ASCII under NFKC; CJK ideographs are kept as-is.
+        assertEquals("cctv1", XmltvParser.normalizeChannelName("\uFF23\uFF23\uFF34\uFF36\uFF0D\uFF11"))
+        assertEquals(XmltvParser.normalizeChannelName("CCTV-1 综合"), XmltvParser.normalizeChannelName("cctv1综合 HD"))
+        assertEquals("凤凰卫视中文台", XmltvParser.normalizeChannelName("凤凰卫视中文台 [HD]"))
+        // Supplementary-plane ideograph (CJK Extension B) must survive as one code point, not two junk chars.
+        val extB = String(Character.toChars(0x20000))
+        assertEquals(extB + "tv", XmltvParser.normalizeChannelName("$extB TV"))
+        assertEquals(1, XmltvParser.normalizeChannelName(extB).codePointCount(0, XmltvParser.normalizeChannelName(extB).length))
     }
 
     @Test
@@ -69,6 +317,20 @@ class XmltvParserTest {
         val result = XmltvParser(now).parse(doc.byteInputStream())
         assertEquals(IptvSafety.MAX_TEXT_CHARS, result.programmes.getValue("c")[0].title.length)
     }
+
+      @Test
+      fun `ignores oversized channel identifiers`() {
+        val oversizedId = "x".repeat(257)
+        val guide = """<tv>
+          <channel id="$oversizedId"><display-name>Oversized</display-name></channel>
+          <programme start="20261024100000" stop="20261024110000" channel="$oversizedId"><title>Ignored</title></programme>
+        </tv>"""
+
+        val result = XmltvParser(now).parse(guide.byteInputStream())
+
+        assertTrue(result.programmes.isEmpty())
+        assertTrue(result.displayNamesByChannelId.isEmpty())
+      }
 
     @Test
     fun `does not resolve external entities`() {

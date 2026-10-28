@@ -26,19 +26,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.Bitmap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
+import coil3.compose.AsyncImage
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
@@ -52,6 +61,8 @@ internal fun ChaptersSidePanel(
     chapters: List<PlayerChapter>,
     positionMs: Long,
     durationMs: Long,
+    artworkUrl: String?,
+    loadFrameAt: suspend (Long) -> Bitmap?,
     focusRequester: FocusRequester,
     onChapterSelected: (Int) -> Unit,
     onClose: () -> Unit,
@@ -110,6 +121,8 @@ internal fun ChaptersSidePanel(
                     ChapterItem(
                         number = index + 1,
                         chapter = chapter,
+                        artworkUrl = PlayerChapters.artworkFor(chapter, artworkUrl),
+                        loadFrameAt = loadFrameAt,
                         isCurrent = index == currentIndex,
                         progress = if (index == currentIndex && endMs > chapter.startMs) {
                             ((positionMs - chapter.startMs).toFloat() / (endMs - chapter.startMs)).coerceIn(0f, 1f)
@@ -130,15 +143,27 @@ internal fun ChaptersSidePanel(
 private fun ChapterItem(
     number: Int,
     chapter: PlayerChapter,
+    artworkUrl: String?,
+    loadFrameAt: suspend (Long) -> Bitmap?,
     isCurrent: Boolean,
     progress: Float?,
     remainingMs: Long?,
     modifier: Modifier,
     onClick: () -> Unit
 ) {
+    var isFocused by remember(chapter.startMs) { mutableStateOf(false) }
+    var frameBitmap by remember(chapter.startMs, artworkUrl) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(isFocused, chapter.startMs, chapter.artworkUrl) {
+        if (!isFocused || !chapter.artworkUrl.isNullOrBlank()) return@LaunchedEffect
+        delay(300L)
+        frameBitmap = runCatching { loadFrameAt(chapter.startMs) }.getOrNull()
+    }
+
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.FocusBackground
@@ -152,67 +177,134 @@ private fun ChapterItem(
         scale = CardDefaults.scale(focusedScale = 1.01f),
         shape = CardDefaults.shape(shape = RoundedCornerShape(NuvioTheme.radii.xl))
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(144.dp)
+                    .height(82.dp)
+                    .clip(RoundedCornerShape(NuvioTheme.radii.md))
+                    .background(NuvioTheme.colors.SurfaceVariant),
+                contentAlignment = Alignment.Center
             ) {
-                Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.Center) {
-                    if (isCurrent) {
+                if (frameBitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = frameBitmap!!.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (!artworkUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = artworkUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        NuvioTheme.colors.Primary.copy(alpha = 0.48f),
+                                        NuvioTheme.colors.BackgroundElevated,
+                                        NuvioTheme.colors.Secondary.copy(alpha = 0.3f)
+                                    )
+                                )
+                            )
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.68f))
+                            )
+                        )
+                )
+                if (isCurrent) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(NuvioTheme.colors.Primary.copy(alpha = 0.92f)),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = stringResource(R.string.cd_current),
-                            tint = NuvioTheme.colors.Primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    } else {
-                        Text(
-                            text = number.toString(),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = NuvioTheme.extendedColors.textTertiary
+                            tint = NuvioTheme.colors.OnPrimary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
+                } else {
+                    Text(
+                        text = stringResource(R.string.player_chapter_number, number),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(NuvioTheme.spacing.xs)
+                            .clip(RoundedCornerShape(NuvioTheme.radii.xs))
+                            .background(Color.Black.copy(alpha = 0.68f))
+                            .padding(horizontal = NuvioTheme.spacing.xs, vertical = 2.dp)
+                    )
                 }
+                Text(
+                    text = formatTime(chapter.startMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(NuvioTheme.spacing.xs)
+                        .clip(RoundedCornerShape(NuvioTheme.radii.xs))
+                        .background(Color.Black.copy(alpha = 0.68f))
+                        .padding(horizontal = NuvioTheme.spacing.xs, vertical = 2.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = chapter.title ?: stringResource(R.string.player_chapter_number, number),
                     style = MaterialTheme.typography.titleMedium,
                     color = if (isCurrent) NuvioTheme.colors.Primary else NuvioTheme.colors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = formatTime(chapter.startMs),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = NuvioTheme.extendedColors.textSecondary
-                )
-            }
-            if (progress != null && remainingMs != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(start = 40.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.2f))
+                if (progress != null && remainingMs != null) {
+                    Spacer(modifier = Modifier.height(NuvioTheme.spacing.sm))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(progress)
-                                .background(NuvioTheme.colors.Primary)
+                                .weight(1f)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color.White.copy(alpha = 0.2f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(progress)
+                                    .background(NuvioTheme.colors.Primary)
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.player_chapter_remaining, formatTime(remainingMs)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NuvioTheme.extendedColors.textTertiary
                         )
                     }
-                    Text(
-                        text = stringResource(R.string.player_chapter_remaining, formatTime(remainingMs)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuvioTheme.extendedColors.textTertiary
-                    )
                 }
             }
         }

@@ -429,7 +429,7 @@ fun HomeScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = NuvioTheme.spacing.xl)
                     .background(
-                        color = Color(0xFF5A1C1C),
+                        color = NuvioTheme.colors.Error.copy(alpha = 0.18f),
                         shape = RoundedCornerShape(10.dp)
                     )
                     .padding(horizontal = 18.dp, vertical = 10.dp)
@@ -823,7 +823,7 @@ private fun HomeLibraryListPickerDialog(
             Text(
                 text = error,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB6B6)
+                color = NuvioTheme.colors.Error
             )
         }
 

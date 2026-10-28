@@ -7,14 +7,77 @@ import org.xml.sax.InputSource
 import org.xml.sax.helpers.DefaultHandler
 import java.io.BufferedInputStream
 import java.io.InputStream
+import java.text.Normalizer
+import java.util.Locale
 import java.util.zip.GZIPInputStream
 import javax.xml.parsers.SAXParserFactory
 
 data class XmltvResult(
     /** Guide channel id -> programmes sorted by start time. */
     val programmes: Map<String, List<EpgProgramme>>,
-    /** Normalized display name -> guide channel id, for playlists without tvg-id. */
-    val channelIdsByName: Map<String, String>
+    /** Normalized display name -> every matching guide channel id, for playlists without tvg-id. */
+    val channelIdsByName: Map<String, Set<String>>,
+    /** Channel IDs declared by the XMLTV file, including channels with no programmes in-window. */
+    val declaredChannelIds: Set<String>,
+    /** Bounded XMLTV channel catalog for explicit correction, including unrelated provider names. */
+    val displayNamesByChannelId: Map<String, Set<String>>,
+    val channelCatalogTruncated: Boolean
+) {
+    /** Exact IDs win. Ordered name fallbacks stop at ambiguity rather than guessing. */
+    fun resolveGuide(epgId: String?, displayNames: List<String>, manualOverride: Boolean = false): EpgResolution {
+        val canonicalId = canonicalDeclaredId(epgId)
+        if (canonicalId != null) {
+            val kind = if (manualOverride) EpgMatchKind.MANUAL else EpgMatchKind.EXACT_ID
+            return EpgResolution(canonicalId, kind)
+        }
+        if (manualOverride) return EpgResolution(null, EpgMatchKind.UNMATCHED)
+        for (displayName in displayNames) {
+            val key = XmltvParser.normalizeChannelName(displayName)
+            if (key.isEmpty()) continue
+            val candidates = channelIdsByName[key].orEmpty().distinct()
+            if (candidates.size > 1) return EpgResolution(null, EpgMatchKind.AMBIGUOUS, candidates.toSet())
+            candidates.singleOrNull()?.let { candidate ->
+                return EpgResolution(candidate, EpgMatchKind.NAME)
+            }
+        }
+        // Weakest tier: the same names with a leading provider tag ("UK:", "[CN]") removed.
+        for (displayName in displayNames) {
+            val stripped = XmltvParser.stripProviderPrefix(displayName) ?: continue
+            val key = XmltvParser.normalizeChannelName(stripped)
+            if (key.isEmpty()) continue
+            val candidates = channelIdsByName[key].orEmpty().distinct()
+            if (candidates.size > 1) return EpgResolution(null, EpgMatchKind.AMBIGUOUS, candidates.toSet())
+            candidates.singleOrNull()?.let { candidate ->
+                return EpgResolution(candidate, EpgMatchKind.NAME)
+            }
+        }
+        return EpgResolution(null, EpgMatchKind.UNMATCHED)
+    }
+
+    fun resolveGuideId(epgId: String?, displayNames: List<String>): String? =
+        resolveGuide(epgId, displayNames).guideId
+
+    private val declaredIdsByFoldedId: Map<String, Set<String>> by lazy {
+        declaredChannelIds.groupBy { XmltvParser.foldGuideId(it) }.mapValues { (_, ids) -> ids.toSet() }
+    }
+
+    /**
+     * The declared id for [epgId]: exact first, then a whitespace/case-insensitive match when it is
+     * unique. Providers routinely write `BBC1.uk ` for a guide that declares `bbc1.uk`.
+     */
+    fun canonicalDeclaredId(epgId: String?): String? {
+        val trimmed = epgId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (trimmed in declaredChannelIds) return trimmed
+        return declaredIdsByFoldedId[XmltvParser.foldGuideId(trimmed)]?.singleOrNull()
+    }
+}
+
+enum class EpgMatchKind { EXACT_ID, NAME, MANUAL, AMBIGUOUS, UNMATCHED }
+
+data class EpgResolution(
+    val guideId: String?,
+    val kind: EpgMatchKind,
+    val candidateIds: Set<String> = emptySet()
 )
 
 /**
@@ -67,7 +130,10 @@ class XmltvParser(
         }
         return XmltvResult(
             programmes = handler.programmes.mapValues { (_, list) -> fillMissingStops(list.sortedBy { it.startMs }) },
-            channelIdsByName = handler.namesToIds
+            channelIdsByName = handler.namesToIds.mapValues { (_, ids) -> ids.toSet() },
+            declaredChannelIds = handler.declaredChannelIds.toSet(),
+            displayNamesByChannelId = handler.displayNamesById.mapValues { (_, names) -> names.toSet() },
+            channelCatalogTruncated = handler.channelCatalogTruncated
         )
     }
 
@@ -85,8 +151,13 @@ class XmltvParser(
         private val wantedIds: MutableSet<String>,
         private val wantedNames: Set<String>
     ) : DefaultHandler() {
+        private val requestedIds = wantedIds.toSet()
+        private val requestedFoldedIds = requestedIds.mapTo(HashSet(), ::foldGuideId)
         val programmes = HashMap<String, MutableList<EpgProgramme>>()
-        val namesToIds = HashMap<String, String>()
+        val namesToIds = HashMap<String, MutableSet<String>>()
+        val declaredChannelIds = LinkedHashSet<String>()
+        val displayNamesById = LinkedHashMap<String, MutableSet<String>>()
+        var channelCatalogTruncated = false
 
         private val text = StringBuilder()
         private var capturing = false
@@ -99,12 +170,22 @@ class XmltvParser(
 
         override fun startElement(uri: String?, localName: String?, qName: String, attributes: Attributes) {
             when (qName) {
-                "channel" -> channelId = attributes.getValue("id")?.trim()
+                "channel" -> {
+                    channelId = attributes.getValue("id")?.trim()
+                        ?.takeIf { it.isNotEmpty() && it.length <= MAX_XMLTV_ID_CHARS }
+                    channelId?.takeIf { it in requestedIds || it in wantedIds || foldGuideId(it) in requestedFoldedIds }
+                        ?.let { id ->
+                            declaredChannelIds.add(id)
+                            // Programmes reference the guide's own spelling, so keep that exact id.
+                            wantedIds += id
+                        }
+                }
                 "display-name" -> if (channelId != null) startCapture()
                 "programme" -> {
                     val start = parseXmltvTime(attributes.getValue("start"))
                     val stop = parseXmltvTime(attributes.getValue("stop"))
                     val channel = attributes.getValue("channel")?.trim()
+                        ?.takeIf { it.isNotEmpty() && it.length <= MAX_XMLTV_ID_CHARS }
                     val latestEnd = stop ?: start?.plus(DEFAULT_LENGTH_MS)
                     progChannel = if (channel != null && start != null && latestEnd != null &&
                         latestEnd > windowStart && start < windowEnd &&
@@ -131,10 +212,25 @@ class XmltvParser(
             when (qName) {
                 "display-name" -> if (capturing) {
                     val id = channelId
-                    val key = normalizeChannelName(endCapture())
+                    val displayName = endCapture()
+                    val key = normalizeChannelName(displayName)
                     if (id != null && key.isNotEmpty()) {
-                        namesToIds.putIfAbsent(key, id)
-                        if (key in wantedNames) wantedIds += id
+                        if (id in displayNamesById || displayNamesById.size < MAX_XMLTV_CATALOG_CHANNELS) {
+                            val labels = displayNamesById.getOrPut(id) { LinkedHashSet() }
+                            if (labels.size < MAX_DISPLAY_NAMES_PER_CHANNEL) {
+                                labels.add(displayName.take(MAX_DISPLAY_NAME_CHARS))
+                            }
+                        } else {
+                            channelCatalogTruncated = true
+                        }
+                        if (key in wantedNames) {
+                            val candidates = namesToIds.getOrPut(key) { LinkedHashSet() }
+                            if (id in candidates || candidates.size < MAX_NAME_CANDIDATES) {
+                                candidates.add(id)
+                                declaredChannelIds.add(id)
+                                wantedIds += id
+                            }
+                        }
                     }
                 }
                 "channel" -> channelId = null
@@ -168,6 +264,7 @@ class XmltvParser(
 
     companion object {
         const val HOUR_MS = 3_600_000L
+        private val XMLTV_OFFSET = Regex("^([+-])(\\d{2}):?(\\d{2})$")
 
         private fun maybeGunzip(input: InputStream): InputStream {
             val buffered = BufferedInputStream(input, 64 * 1024)
@@ -178,7 +275,7 @@ class XmltvParser(
             return if (b1 == 0x1f && b2 == 0x8b) BufferedInputStream(GZIPInputStream(buffered, 64 * 1024)) else buffered
         }
 
-        /** Parses "yyyyMMddHHmmss[ +hhmm]" (seconds and offset optional; no offset = UTC). */
+        /** Parses yyyyMMddHHmm[ss][ +/-HHMM|+/-HH:MM]; omitted seconds and offsets mean zero/UTC. */
         fun parseXmltvTime(value: String?): Long? {
             val s = value?.trim() ?: return null
             if (s.length < 12) return null
@@ -188,21 +285,29 @@ class XmltvParser(
             val day = num(6, 8) ?: return null
             val hour = num(8, 10) ?: return null
             val minute = num(10, 12) ?: return null
-            val second = if (s.length >= 14 && s[12].isDigit()) num(12, 14) ?: 0 else 0
-            if (month !in 1..12 || day !in 1..31 || hour > 23 || minute > 59 || second > 60) return null
+            val hasSeconds = s.length >= 14 && s[12].isDigit()
+            val timeLength = if (hasSeconds) 14 else 12
+            val second = if (hasSeconds) num(12, 14) ?: return null else 0
+            if (month !in 1..12 || day !in 1..daysInMonth(year, month) || hour > 23 || minute > 59 || second > 60) return null
             var offsetMinutes = 0
-            val rest = s.substring(if (s.length >= 14 && s[12].isDigit()) 14 else 12).trim()
-            if (rest.length >= 5 && (rest[0] == '+' || rest[0] == '-')) {
-                val digits = rest.substring(1).replace(":", "")
-                val hh = digits.take(2).toIntOrNull()
-                val mm = digits.drop(2).take(2).toIntOrNull()
-                if (hh != null && mm != null) {
-                    offsetMinutes = (hh * 60 + mm) * if (rest[0] == '-') -1 else 1
-                }
+            val rest = s.substring(timeLength).trim()
+            if (rest.isNotEmpty()) {
+                val match = XMLTV_OFFSET.matchEntire(rest) ?: return null
+                val hh = match.groupValues[2].toIntOrNull()
+                val mm = match.groupValues[3].toIntOrNull()
+                // XMLTV offsets outside ±14:00 or with minute values above 59 are invalid.
+                if (hh == null || mm == null || hh > 14 || mm > 59 || (hh == 14 && mm > 0)) return null
+                offsetMinutes = (hh * 60 + mm) * if (match.groupValues[1] == "-") -1 else 1
             }
             val days = daysFromCivil(year, month, day)
             val epochSeconds = days * 86_400L + hour * 3_600L + minute * 60L + second - offsetMinutes * 60L
             return epochSeconds * 1000L
+        }
+
+        private fun daysInMonth(year: Int, month: Int): Int = when (month) {
+            2 -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
+            4, 6, 9, 11 -> 30
+            else -> 31
         }
 
         private fun daysFromCivil(year: Int, month: Int, day: Int): Long {
@@ -216,18 +321,60 @@ class XmltvParser(
 
         private const val UNKNOWN_STOP = Long.MIN_VALUE
         private const val DEFAULT_LENGTH_MS = 3 * 60 * 60 * 1000L
+        private const val MAX_XMLTV_ID_CHARS = 256
+        private const val MAX_XMLTV_CATALOG_CHANNELS = 5_000
+        private const val MAX_NAME_CANDIDATES = 16
+        private const val MAX_DISPLAY_NAMES_PER_CHANNEL = 2
+        private const val MAX_DISPLAY_NAME_CHARS = 120
         /** Enough for a guide preview line; full 4K-character descriptions cost too much memory on TV boxes. */
         private const val MAX_DESC_CHARS = 280
 
-        private val QUALITY_SUFFIX = Regex("(fhd|uhd|hd|sd|4k|hevc)$")
-        private val BRACKETED = Regex("""\(.*?\)|\[.*?]""")
+        private val QUALITY_SUFFIX = Regex("""(?:[\s._-]+)(fhd|uhd|hd|sd|4k|hevc)$""")
+        private val BRACKETED_QUALITY_SUFFIX = Regex("""[\[(](fhd|uhd|hd|sd|4k|hevc)[)\]]$""")
 
-        /** "BBC One HD" / "bbc.one" / "BBC ONE (UK)" all normalise close to "bbcone". */
+        /** Comparison key for guide ids: trims and case-folds, nothing more (ids are opaque tokens). */
+        fun foldGuideId(id: String): String = id.trim().lowercase(Locale.ROOT)
+
+        /**
+         * Leading provider tags such as `UK:`, `[CN]`, `|FR|`, `US - ` or `中国：`. A dash only counts when
+         * followed by a space, so hyphenated names like `ITV-2` and `CCTV-13` are left alone.
+         */
+        private val PROVIDER_PREFIX = Regex("""^(?:[\[(|]\s*[\p{L}\p{N}]{1,8}\s*[\])|]|[\p{L}\p{N}]{1,8}\s*(?:[:：|]|[-–—]\s))\s*""")
+
+        /** [name] without one leading provider/region tag, or null when there is no such tag. */
+        fun stripProviderPrefix(name: String): String? {
+            val trimmed = name.trim()
+            val match = PROVIDER_PREFIX.find(trimmed) ?: return null
+            val rest = trimmed.substring(match.range.last + 1).trim()
+            // A bare number left over ("CH: 13") is too weak; XMLTV guides use "13" as a display name.
+            return rest.takeIf { it != trimmed && it.any(Char::isLetter) }
+        }
+
+        /**
+         * Ordered, de-duplicated match keys for a playlist channel: provider name, display name, then
+         * each with its leading region tag removed. Later entries are weaker and must never override
+         * an earlier unique hit.
+         */
+        fun candidateNames(epgName: String?, name: String): List<String> {
+            val raw = listOfNotNull(epgName?.takeIf { it.isNotBlank() }, name.takeIf { it.isNotBlank() })
+            val stripped = raw.mapNotNull(::stripProviderPrefix)
+            return (raw + stripped).map(::normalizeChannelName).filter(String::isNotEmpty).distinct()
+        }
+
+        /** Removes formatting and standalone quality tags while preserving regional/language labels. */
         fun normalizeChannelName(name: String): String {
-            val cleaned = name.lowercase()
-                .replace(BRACKETED, "")
-                .filter { it.isLetterOrDigit() }
-            return cleaned.replace(QUALITY_SUFFIX, "").ifEmpty { cleaned }
+            val folded = Normalizer.normalize(name, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+            val withoutBracketedQuality = folded.replace(BRACKETED_QUALITY_SUFFIX, "")
+            val withoutQuality = withoutBracketedQuality.replace(QUALITY_SUFFIX, "")
+            // Iterate code points: a Char filter would split surrogate pairs (CJK Ext-B, emoji) into junk.
+            val out = StringBuilder(withoutQuality.length)
+            var i = 0
+            while (i < withoutQuality.length) {
+                val cp = withoutQuality.codePointAt(i)
+                if (Character.isLetterOrDigit(cp)) out.appendCodePoint(cp)
+                i += Character.charCount(cp)
+            }
+            return out.toString()
         }
     }
 }

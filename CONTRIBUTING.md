@@ -2,6 +2,19 @@
 
 Thanks for helping improve NuvioTV.
 
+## Code layout
+
+Shared Android code lives under `app/src/main/java/com/nuvio/tv`:
+
+- `core/`: application services, dependency injection, sync, and infrastructure.
+- `data/`: persistence, remote clients, provider integrations, and repository implementations. Trakt repository services and helpers are grouped in `data/repository/trakt/`.
+- `domain/`: content models, repository contracts, and pure business rules.
+- `ui/screens/`: feature-owned screens and ViewModels. Catalog browsing lives in `catalog/`; appearance and experience selectors live in `settings/`.
+- `ui/components/`: reusable UI, with cohesive feature groups such as `sidebar/`, `posteroptions/`, and `ticker/`.
+- `ui/navigation/`: route definitions and destination integration, rather than screen implementation.
+
+Keep package declarations aligned with directories. Mirror feature packages under `app/src/test/java` for unit tests. Preserve the `full`, `playstore`, `debug`, and instrumentation source-set boundaries; do not move distribution-specific code into shared sources during cleanup. Keep unrelated local changes and generated/native assets intact.
+
 ## Strict rules - read before opening anything
 
 These rules are enforced strictly. Issues and PRs that do not follow them will be closed without review.

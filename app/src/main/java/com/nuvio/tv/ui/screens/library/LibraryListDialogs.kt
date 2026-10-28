@@ -98,7 +98,7 @@ internal fun ManageListsDialog(
                     Text(
                         text = errorMessage,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFFFFB6B6)
+                        color = NuvioTheme.colors.Error
                     )
                 }
 
@@ -185,7 +185,7 @@ internal fun ManageListsDialog(
                         onClick = onDelete,
                         enabled = !pending && selectedKey != null,
                         colors = ButtonDefaults.colors(
-                            containerColor = Color(0xFF4A2323),
+                            containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
                             contentColor = NuvioTheme.colors.TextPrimary
                         )
                     ) { Text(stringResource(R.string.library_list_delete)) }

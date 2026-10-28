@@ -74,9 +74,10 @@ internal fun PlayerRuntimeController.attemptStartupRecovery(
 /**
  * Determines whether the given [PlaybackException] is transient and worth retrying.
  *
- * Retryable errors include source/IO errors, parsing glitches, and unexpected runtime
- * exceptions that commonly occur after pause/resume or seek on flaky streams.
- * Decoder-init and DRM errors are considered fatal.
+ * Retryable errors include transient source/IO failures, selected malformed/unsupported media
+ * errors, and decoder failures that can recover after a player rebuild on affected devices.
+ * Missing files, permission/cleartext failures, permanent HTTP responses, and DRM/unknown errors
+ * remain terminal.
  */
 internal fun isRetryablePlaybackError(error: PlaybackException): Boolean {
     return when (error.errorCode) {
@@ -84,10 +85,11 @@ internal fun isRetryablePlaybackError(error: PlaybackException): Boolean {
         PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE, -> true
+
         PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
         PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
-        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
-        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE, -> true
+        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> false
 
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
             val httpCause = error.findCause<HttpDataSource.InvalidResponseCodeException>()

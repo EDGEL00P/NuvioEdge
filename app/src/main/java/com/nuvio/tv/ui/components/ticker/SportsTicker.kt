@@ -2,14 +2,9 @@
 
 package com.nuvio.tv.ui.components.ticker
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,11 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,20 +41,26 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.data.sports.GameState
 import com.nuvio.tv.data.sports.SportsTickerRepository
+import com.nuvio.tv.data.sports.SportsFollowPreferences
 import com.nuvio.tv.data.sports.TickerGame
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import com.nuvio.tv.data.sports.TeamLine
 import com.nuvio.tv.data.sports.TickerKind
+import com.nuvio.tv.data.sports.withoutScores
+import com.nuvio.tv.ui.theme.NuvioTheme
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -72,24 +70,60 @@ class SportsTickerViewModel @Inject constructor(
     private val repository: SportsTickerRepository
 ) : ViewModel() {
 
+    private val _enabledLoaded = MutableStateFlow(false)
+    val enabledLoaded: StateFlow<Boolean> = _enabledLoaded.asStateFlow()
+
     val enabled: StateFlow<Boolean> = repository.enabled
+        .onEach { _enabledLoaded.value = true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    val follows: StateFlow<SportsFollowPreferences> = repository.follows
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SportsFollowPreferences())
+
+    val hideScores: StateFlow<Boolean> = repository.hideScores
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    val channelOverrides: StateFlow<Map<String, String>> = repository.channelOverrides
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    val teamChannelOverrides: StateFlow<Map<String, String>> = repository.teamChannelOverrides
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    suspend fun setChannelOverride(game: TickerGame, channelId: String?) {
+        repository.setChannelOverride(game, channelId)
+    }
+
+    suspend fun setTeamChannelOverride(league: String, team: TeamLine, channelId: String?) {
+        repository.setTeamChannelOverride(league, team, channelId)
+    }
+
+    fun toggleHideScores() {
+        viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.toggleHideScores() }
+    }
+
+    fun toggleFollowedLeague(league: String) {
+        viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.toggleFollowedLeague(league) }
+    }
+
+    fun toggleFollowedTeam(league: String, team: TeamLine) {
+        viewModelScope.launch(com.nuvio.tv.ui.screens.live.liveErrors) { repository.toggleFollowedTeam(league, team) }
+    }
 
     /** Polls every minute only while the ticker is enabled and on screen (WhileSubscribed). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val games: StateFlow<List<TickerGame>> = enabled
         .flatMapLatest { on ->
             if (!on) flowOf(emptyList())
-            else flow {
+            else channelFlow {
                 while (true) {
                     val games = try {
-                        repository.fetchGames()
+                        repository.fetchGames(onFirstGames = { send(it) })
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         null // offline or ESPN down: keep showing the last scores
                     }
-                    if (games != null) emit(games)
+                    if (games != null) send(games)
                     delay(REFRESH_MS)
                 }
             }
@@ -97,7 +131,7 @@ class SportsTickerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Today's games for the Scores screen, whether or not the ticker is showing. */
-    suspend fun gamesNow(): List<TickerGame> = repository.fetchGames()
+    suspend fun gamesNow(): List<TickerGame> = repository.fetchGames(limitPerLeague = false)
 
     suspend fun detail(game: TickerGame): com.nuvio.tv.data.sports.GameDetail? = repository.fetchDetail(game)
 
@@ -110,30 +144,47 @@ class SportsTickerViewModel @Inject constructor(
     }
 }
 
-/** Sports palette for the ticker; it sits over video, so it doesn't follow the app theme. */
+/** Opaque themed surfaces preserve readability over video. */
 private object TickerColors {
-    val bar = Brush.horizontalGradient(listOf(Color(0xF20A0F1C), Color(0xF2121A2E), Color(0xF20A0F1C)))
-    val leagueTag = Color(0xFF1D4ED8)
-    val oddsPanel = Color(0xFF16213A)
-    val live = Color(0xFFE11D48)
-    val text = Color(0xFFF8FAFC)
-    val muted = Color(0xFF94A3B8)
-    val odds = Color(0xFFFACC15)
+    val bar: Brush
+        @Composable @ReadOnlyComposable
+        get() = Brush.horizontalGradient(listOf(NuvioTheme.colors.Background, NuvioTheme.colors.BackgroundElevated, NuvioTheme.colors.Background))
+    val leagueTag: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.Secondary
+    val onLeagueTag: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.OnSecondary
+    val oddsPanel: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.BackgroundCard
+    val live: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.Error
+    val text: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.TextPrimary
+    val muted: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.TextSecondary
+    val odds: Color
+        @Composable @ReadOnlyComposable
+        get() = NuvioTheme.colors.Rating
 }
 
 /**
- * Score and odds strip along the bottom of every screen. It flips through games one at a time, like broadcast
- * score tickers, and never takes focus, so it can't interfere with the remote.
+ * Score and odds strip along the bottom of every screen; it never takes remote focus.
  */
 @Composable
 fun SportsTickerOverlay(viewModel: SportsTickerViewModel = hiltViewModel()) {
     val enabled by viewModel.enabled.collectAsStateWithLifecycle()
     val games by viewModel.games.collectAsStateWithLifecycle()
+    val hideScores by viewModel.hideScores.collectAsStateWithLifecycle()
     if (!enabled || games.isEmpty()) return
 
     Box(modifier = Modifier.fillMaxSize()) {
         SportsTickerBar(
-            games = games,
+            games = if (hideScores) games.map { it.withoutScores() } else games,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(start = 48.dp, end = 48.dp, bottom = 27.dp) // TV safe area
@@ -143,42 +194,29 @@ fun SportsTickerOverlay(viewModel: SportsTickerViewModel = hiltViewModel()) {
 
 @Composable
 fun SportsTickerBar(games: List<TickerGame>, modifier: Modifier = Modifier) {
-    var index by remember { mutableIntStateOf(0) }
-    LaunchedEffect(games.size) {
-        if (index >= games.size) index = 0
-        while (games.size > 1) {
-            delay(FLIP_MS)
-            index = (index + 1) % games.size
-        }
-    }
-    val game = games.getOrNull(index) ?: return
+    if (games.isEmpty()) return
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(TickerColors.bar),
+            .clip(RoundedCornerShape(8.dp))
+            .background(TickerColors.bar)
+            .basicMarquee(
+                iterations = Int.MAX_VALUE,
+                initialDelayMillis = 0,
+                repeatDelayMillis = 0,
+                spacing = MarqueeSpacing(24.dp),
+                velocity = 36.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AnimatedContent(
-            targetState = game,
-            transitionSpec = {
-                (slideInVertically(tween(350)) { it } + fadeIn(tween(350))) togetherWith
-                    (slideOutVertically(tween(350)) { -it } + fadeOut(tween(250)))
-            },
-            contentKey = { it.league + it.id },
-            label = "tickerFlip",
-            modifier = Modifier.weight(1f).fillMaxHeight()
-        ) { shown ->
-            GameCard(shown)
+        games.forEach { game ->
+            Box(Modifier.width(760.dp).fillMaxHeight()) {
+                GameCard(game)
+            }
+            Spacer(Modifier.width(24.dp))
         }
-        Text(
-            text = "${index + 1}/${games.size}",
-            color = TickerColors.muted,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 12.dp)
-        )
     }
 }
 
@@ -194,7 +232,7 @@ private fun GameCard(game: TickerGame) {
         ) {
             Text(
                 game.league,
-                color = TickerColors.text,
+                color = TickerColors.onLeagueTag,
                 fontWeight = FontWeight.Black,
                 fontSize = if (game.league.length > 4) 13.sp else 15.sp,
                 maxLines = 1

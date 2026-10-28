@@ -533,8 +533,8 @@ private fun ActionIconButton(
     onLongPress: (() -> Unit)? = null,
     enabled: Boolean = true,
     selected: Boolean = false,
-    selectedContainerColor: Color = Color(0xFF7CFF9B),
-    selectedContentColor: Color = Color.Black,
+    selectedContainerColor: Color = NuvioTheme.colors.selection.background,
+    selectedContentColor: Color = NuvioTheme.colors.selection.foreground,
     onFocused: () -> Unit = {},
     focusRequester: FocusRequester? = null
 ) {

@@ -108,8 +108,8 @@ fun PostPlayOverlay(
             onClick = onCardClick,
             shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
             colors = CardDefaults.colors(
-                containerColor = Color(0xE3191919),
-                focusedContainerColor = Color(0xE3191919),
+                containerColor = NuvioTheme.colors.PlayerOverlay,
+                focusedContainerColor = NuvioTheme.colors.PlayerOverlay,
             ),
             border = CardDefaults.border(
                 border = Border(

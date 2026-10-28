@@ -20,7 +20,9 @@ object XtreamClient {
         val expiresAtMs: Long?,
         val maxConnections: Int?,
         /** `allowed_output_formats`, e.g. ["m3u8", "ts"]; empty when the panel doesn't say. */
-        val outputFormats: List<String> = emptyList()
+        val outputFormats: List<String> = emptyList(),
+        /** `server_info.timezone`; catch-up start times are in this zone, not UTC. */
+        val serverZone: java.time.ZoneId? = null
     ) {
         /** MPEG-TS unless the account only allows HLS. */
         val liveExtension: String get() = if (outputFormats.isNotEmpty() && "ts" !in outputFormats && "m3u8" in outputFormats) "m3u8" else "ts"
@@ -68,6 +70,27 @@ object XtreamClient {
             .build()
             .toString()
 
+    private val CATCHUP_START = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd:HH-mm", java.util.Locale.ROOT)
+
+    /** Standard Xtream archive URL; [startMs] is converted to the panel's local time. */
+    fun catchupUrl(
+        source: IptvSource,
+        streamId: String,
+        startMs: Long,
+        durationMinutes: Int,
+        zone: java.time.ZoneId,
+        extension: String = "ts"
+    ): String =
+        base(source).newBuilder()
+            .addPathSegment("timeshift")
+            .addPathSegment(source.username)
+            .addPathSegment(source.password)
+            .addPathSegment(durationMinutes.coerceAtLeast(1).toString())
+            .addPathSegment(java.time.Instant.ofEpochMilli(startMs).atZone(zone).format(CATCHUP_START))
+            .addPathSegment("$streamId.$extension")
+            .build()
+            .toString()
+
     fun parseAccount(body: String): Account {
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull() as? JsonObject
             ?: throw IptvException("The server did not return an Xtream response")
@@ -79,7 +102,9 @@ object XtreamClient {
             expiresAtMs = user.string("exp_date")?.toLongOrNull()?.times(1000),
             maxConnections = user.string("max_connections")?.toIntOrNull(),
             outputFormats = (user["allowed_output_formats"] as? JsonArray)
-                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.lowercase() }.orEmpty()
+                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.lowercase() }.orEmpty(),
+            serverZone = (root["server_info"] as? JsonObject)?.string("timezone")
+                ?.let { runCatching { java.time.ZoneId.of(it.trim()) }.getOrNull() }
         )
     }
 
@@ -137,9 +162,14 @@ object XtreamClient {
             logoUrl = obj.string("stream_icon")?.takeIf(IptvSafety::isWebUrl),
             epgId = obj.string("epg_channel_id")?.takeIf { it.isNotBlank() },
             epgName = name,
-            number = obj.string("num")?.toIntOrNull()
+            number = obj.string("num")?.toIntOrNull(),
+            catchupDays = if (obj.string("tv_archive") == "1") {
+                obj.string("tv_archive_duration")?.toIntOrNull()?.coerceIn(0, MAX_CATCHUP_DAYS) ?: 0
+            } else 0
         )
     }
+
+    private const val MAX_CATCHUP_DAYS = 31
 
     /** Xtream panels mix numbers, strings and nulls for the same field. */
     private fun JsonObject.string(key: String): String? = when (val value: JsonElement? = this[key]) {

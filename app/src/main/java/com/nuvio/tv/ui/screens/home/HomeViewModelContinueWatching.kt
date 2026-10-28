@@ -1219,7 +1219,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 private fun deduplicateInProgress(items: List<WatchProgress>): List<WatchProgress> {
     val (series, nonSeries) = items.partition { isSeriesTypeCW(it.contentType) }
     val latestPerShow = series
-        .sortedByDescending { it.lastWatched }
+        .sortedWith(
+            compareByDescending<WatchProgress> { it.lastWatched }
+                .thenBy { it.source != WatchProgress.SOURCE_LOCAL }
+                .thenBy { it.videoId }
+        )
         .distinctBy { it.contentId }
     return (nonSeries + latestPerShow).sortedByDescending { it.lastWatched }
 }
@@ -1760,31 +1764,43 @@ internal fun mergeContinueWatchingItems(
     nextUpItems: List<ContinueWatchingItem.NextUp>,
     mode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT
 ): List<ContinueWatchingItem> {
-    val allInProgressIds = inProgressItems
+    val orderedInProgress = inProgressItems.sortedWith(
+        compareByDescending<ContinueWatchingItem.InProgress> { it.progress.lastWatched }
+            .thenBy { it.progress.source != WatchProgress.SOURCE_LOCAL }
+            .thenBy { it.progress.videoId }
+    )
+    val allInProgressIds = orderedInProgress
         .asSequence()
         .map { it.progress }
         .filter { isSeriesTypeCW(it.contentType) }
-        .map { it.contentId }
-        .filter { it.isNotBlank() }
+        .filter { it.contentId.isNotBlank() }
+        .map { continueWatchingContentIdentity(it.contentId, it.contentType) }
         .toSet()
 
-    val filteredNextUpItems = nextUpItems.filter { item ->
-        item.info.contentId !in allInProgressIds
-    }
+    val filteredNextUpItems = nextUpItems
+        .filter { item -> continueWatchingContentIdentity(item.info.contentId, item.info.contentType) !in allInProgressIds }
+        .sortedWith(
+            compareByDescending<ContinueWatchingItem.NextUp> { it.info.sortTimestamp }
+                .thenByDescending { it.info.lastWatched }
+                .thenBy { it.info.videoId }
+        )
 
-    val combined = inProgressItems + filteredNextUpItems
+    val combined = orderedInProgress + filteredNextUpItems
 
-    val seen = mutableSetOf<String>()
+    val seen = mutableSetOf<Pair<String, String>>()
     val deduplicated = combined.filter { item ->
-        val contentId = when (item) {
-            is ContinueWatchingItem.InProgress -> item.progress.contentId
-            is ContinueWatchingItem.NextUp -> item.info.contentId
+        val identity = when (item) {
+            is ContinueWatchingItem.InProgress -> continueWatchingContentIdentity(item.progress.contentId, item.progress.contentType)
+            is ContinueWatchingItem.NextUp -> continueWatchingContentIdentity(item.info.contentId, item.info.contentType)
         }
-        contentId.isBlank() || seen.add(contentId)
+        identity.second.isBlank() || seen.add(identity)
     }
 
     return sortContinueWatchingItems(deduplicated, mode)
 }
+
+private fun continueWatchingContentIdentity(contentId: String, contentType: String): Pair<String, String> =
+    (if (isSeriesTypeCW(contentType)) "series" else contentType.lowercase(java.util.Locale.ROOT)) to contentId
 
 /**
  * Splits items into (mainRow, upcomingRow) for [ContinueWatchingSortMode.SPLIT_UPCOMING].

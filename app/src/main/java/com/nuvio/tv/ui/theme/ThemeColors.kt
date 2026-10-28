@@ -7,8 +7,8 @@ import com.nuvio.tv.domain.model.CustomThemeColors
 data class ThemeColorPalette(
     val secondary: Color,
     val secondaryVariant: Color,
-    val onSecondary: Color = NuvioPrimitives.white,
-    val onSecondaryVariant: Color = NuvioPrimitives.white,
+    val onSecondary: Color = semanticForegroundFor(secondary),
+    val onSecondaryVariant: Color = semanticForegroundFor(secondaryVariant),
     val accentGradient: List<Color> = listOf(secondary),
     val focusRing: Color,
     val focusRingGradient: List<Color> = listOf(focusRing),

@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.os.SystemClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.update
@@ -24,6 +25,8 @@ internal fun PlayerRuntimeController.enterStillWatchingPromptMode() {
     if (_uiState.value.postPlayMode is PostPlayMode.StillWatching && stillWatchingPromptJob?.isActive == true) {
         return
     }
+    nextEpisodeAutoPlayJob?.cancel()
+    nextEpisodeAutoPlayJob = null
     pauseForStillWatchingPrompt()
     stillWatchingPromptJob?.cancel()
     _uiState.update {
@@ -35,18 +38,23 @@ internal fun PlayerRuntimeController.enterStillWatchingPromptMode() {
             showControls = false,
         )
     }
+    val deadlineMs = SystemClock.elapsedRealtime() + STILL_WATCHING_COUNTDOWN_SECONDS * STILL_WATCHING_COUNTDOWN_TICK_MS
     val job = scope.launch {
         try {
-            for (remaining in (STILL_WATCHING_COUNTDOWN_SECONDS - 1) downTo 0) {
-                delay(STILL_WATCHING_COUNTDOWN_TICK_MS)
+            while (_uiState.value.postPlayMode is PostPlayMode.StillWatching) {
+                val remainingMs = (deadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                val remaining = ((remainingMs + STILL_WATCHING_COUNTDOWN_TICK_MS - 1) /
+                    STILL_WATCHING_COUNTDOWN_TICK_MS).coerceAtMost(STILL_WATCHING_COUNTDOWN_SECONDS.toLong()).toInt()
                 _uiState.update { state ->
                     val current = state.postPlayMode as? PostPlayMode.StillWatching
                         ?: return@update state
                     state.copy(postPlayMode = current.copy(countdownSec = remaining))
                 }
-            }
-            if (_uiState.value.postPlayMode is PostPlayMode.StillWatching) {
-                exitFromStillWatching()
+                if (remainingMs == 0L) {
+                    exitFromStillWatching()
+                    break
+                }
+                delay(minOf(STILL_WATCHING_COUNTDOWN_TICK_MS, remainingMs))
             }
         } finally {
             if (stillWatchingPromptJob === coroutineContext.job) {
@@ -58,6 +66,7 @@ internal fun PlayerRuntimeController.enterStillWatchingPromptMode() {
 }
 
 internal fun PlayerRuntimeController.onStillWatchingContinue() {
+    if (_uiState.value.postPlayMode !is PostPlayMode.StillWatching) return
     stillWatchingPromptJob?.cancel()
     stillWatchingPromptJob = null
     consecutiveAutoPlayCount = 0
@@ -66,6 +75,7 @@ internal fun PlayerRuntimeController.onStillWatchingContinue() {
 }
 
 internal fun PlayerRuntimeController.onDismissStillWatchingPrompt() {
+    if (_uiState.value.postPlayMode !is PostPlayMode.StillWatching) return
     exitFromStillWatching()
 }
 

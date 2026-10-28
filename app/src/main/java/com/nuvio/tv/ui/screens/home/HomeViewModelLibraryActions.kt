@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.core.tracking.mergeTrackingMembershipWithTabs
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
-import com.nuvio.tv.data.repository.parseContentIds
+import com.nuvio.tv.data.repository.trakt.parseContentIds
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges

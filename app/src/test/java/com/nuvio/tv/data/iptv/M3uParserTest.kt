@@ -9,6 +9,25 @@ import org.junit.Test
 
 class M3uParserTest {
 
+    @Test
+    fun `archive metadata is bounded and explicit none disables catch-up`() {
+        val result = M3uParser("src").parse(
+            """#EXTM3U
+                #EXTINF:-1 catchup-days="7" catchup-source="https://archive.example/{utc}",Archive
+                https://stream.example/1
+                #EXTINF:-1 catchup="none" catchup-days="7" catchup-source="https://archive.example/{utc}",Disabled
+                https://stream.example/2
+                #EXTINF:-1 catchup-days="999" catchup-source="https://archive.example/{utc}",Bounded
+                https://stream.example/3
+                #EXTINF:-1 catchup-days="7",No template
+                https://stream.example/4
+            """.trimIndent().reader()
+        )
+        assertEquals(listOf(7, 0, 31, 0), result.channels.map { it.catchupDays })
+        assertEquals("https://archive.example/{utc}", result.channels[0].catchupTemplate)
+        assertNull(result.channels[1].catchupTemplate)
+    }
+
     private val playlist = """
         #EXTM3U url-tvg="https://guide.example/epg.xml.gz,https://backup.example/epg.xml"
         #EXTINF:-1 tvg-id="bbc1.uk" tvg-name="BBC One" tvg-logo="https://logo/bbc1.png" tvg-chno="101" group-title="UK, Entertainment",BBC One, London

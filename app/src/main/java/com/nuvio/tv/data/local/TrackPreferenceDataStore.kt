@@ -32,9 +32,31 @@ class TrackPreferenceDataStore @Inject constructor(
         // almost certainly wrong.
         private const val SUB_DELAY_MS = "sub_delay_ms"
         private const val PLAYBACK_SPEED = "playback_speed"
+
+        internal fun subtitleDelayStorageKey(
+            videoId: String,
+            videoHash: String?,
+            videoSize: Long?,
+            filename: String?,
+            infoHash: String?,
+            fileIndex: Int?
+        ): String {
+            val identity = when {
+                !videoHash.isNullOrBlank() -> "hash:${videoHash.trim().lowercase(java.util.Locale.ROOT)}|size:${videoSize ?: -1L}"
+                !infoHash.isNullOrBlank() && fileIndex != null -> "torrent:${infoHash.trim().lowercase(java.util.Locale.ROOT)}|file:$fileIndex"
+                !filename.isNullOrBlank() && videoSize != null && videoSize > 0L -> "file:${filename.trim()}|size:$videoSize"
+                else -> return videoId
+            }
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(identity.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            return "$videoId|release-v2:$digest"
+        }
     }
 
-    private fun store() = factory.get(profileManager.activeProfileId.value, FEATURE)
+    internal val activeProfileId: Int get() = profileManager.activeProfileId.value
+
+    private fun store(profileId: Int) = factory.get(profileId, FEATURE)
 
     private fun key(field: String, contentId: String) =
         stringPreferencesKey("$field|$contentId")
@@ -45,8 +67,8 @@ class TrackPreferenceDataStore @Inject constructor(
     private fun floatKey(field: String, id: String) =
         floatPreferencesKey("$field|$id")
 
-    suspend fun save(contentId: String, pref: PersistedTrackPreference) {
-        store().edit { prefs ->
+    suspend fun save(contentId: String, pref: PersistedTrackPreference, profileId: Int = activeProfileId) {
+        store(profileId).edit { prefs ->
             fun set(field: String, value: String?) {
                 val k = key(field, contentId)
                 if (value != null) prefs[k] = value else prefs.remove(k)
@@ -65,8 +87,8 @@ class TrackPreferenceDataStore @Inject constructor(
         }
     }
 
-    suspend fun load(contentId: String): PersistedTrackPreference? {
-        val prefs = store().data.first()
+    suspend fun load(contentId: String, profileId: Int = activeProfileId): PersistedTrackPreference? {
+        val prefs = store(profileId).data.first()
         val subType = prefs[key(SUB_TYPE, contentId)]
         val audioLang = prefs[key(AUDIO_LANG, contentId)]
         val audioName = prefs[key(AUDIO_NAME, contentId)]
@@ -99,26 +121,26 @@ class TrackPreferenceDataStore @Inject constructor(
      * release/encode rarely transfers to the next episode. Keying by videoId
      * scopes the delay to exactly the video it was synced against. See #1063.
      */
-    suspend fun saveSubtitleDelayMs(videoId: String, delayMs: Int?) {
-        store().edit { prefs ->
+    suspend fun saveSubtitleDelayMs(videoId: String, delayMs: Int?, profileId: Int = activeProfileId) {
+        store(profileId).edit { prefs ->
             val k = intKey(SUB_DELAY_MS, videoId)
             if (delayMs != null && delayMs != 0) prefs[k] = delayMs else prefs.remove(k)
         }
     }
 
-    suspend fun loadSubtitleDelayMs(videoId: String): Int? {
-        return store().data.first()[intKey(SUB_DELAY_MS, videoId)]
+    suspend fun loadSubtitleDelayMs(videoId: String, profileId: Int = activeProfileId): Int? {
+        return store(profileId).data.first()[intKey(SUB_DELAY_MS, videoId)]
     }
 
-    suspend fun savePlaybackSpeed(contentId: String, speed: Float?) {
-        store().edit { prefs ->
+    suspend fun savePlaybackSpeed(contentId: String, speed: Float?, profileId: Int = activeProfileId) {
+        store(profileId).edit { prefs ->
             val k = floatKey(PLAYBACK_SPEED, contentId)
             if (speed != null && speed != 1f) prefs[k] = speed else prefs.remove(k)
         }
     }
 
-    suspend fun loadPlaybackSpeed(contentId: String): Float? {
-        return store().data.first()[floatKey(PLAYBACK_SPEED, contentId)]
+    suspend fun loadPlaybackSpeed(contentId: String, profileId: Int = activeProfileId): Float? {
+        return store(profileId).data.first()[floatKey(PLAYBACK_SPEED, contentId)]
     }
 }
 

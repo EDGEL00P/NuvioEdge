@@ -8,9 +8,9 @@ import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktAuthState
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.MoreLikeThisSourcePreference
-import com.nuvio.tv.data.repository.TraktAuthService
-import com.nuvio.tv.data.repository.TraktProgressService
-import com.nuvio.tv.data.repository.TraktTokenPollResult
+import com.nuvio.tv.data.repository.trakt.TraktAuthService
+import com.nuvio.tv.data.repository.trakt.TraktProgressService
+import com.nuvio.tv.data.repository.trakt.TraktTokenPollResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

@@ -93,7 +93,7 @@ internal fun EpisodeShufflePreview(
         }
         Column(
             modifier = Modifier.fillMaxSize()
-                .background(Brush.linearGradient(listOf(Color(0xFF070707), Color(0xFF101010), Color(0xFF151515))))
+                .background(Brush.linearGradient(listOf(NuvioTheme.colors.Background, NuvioTheme.colors.Panel, NuvioTheme.colors.BackgroundElevated)))
                 .onPreviewKeyEvent { event ->
                     if (starting) return@onPreviewKeyEvent true
                     val native = event.nativeKeyEvent

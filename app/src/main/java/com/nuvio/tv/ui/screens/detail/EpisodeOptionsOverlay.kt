@@ -115,7 +115,7 @@ internal fun EpisodeOptionsOverlay(
     val context = LocalContext.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
-    val overlayColor = Color(0xFF050505)
+    val overlayColor = NuvioTheme.colors.Modal
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val primaryFocusRequester = remember { FocusRequester() }
     val detailsFocusRequester = remember { FocusRequester() }
@@ -166,12 +166,14 @@ internal fun EpisodeOptionsOverlay(
             )
         }
     }
-    val noneBackgroundBrush = remember {
+    val panelColor = NuvioTheme.colors.Panel
+    val raisedColor = NuvioTheme.colors.BackgroundElevated
+    val noneBackgroundBrush = remember(overlayColor, panelColor, raisedColor) {
         Brush.horizontalGradient(
             colors = listOf(
-                Color(0xFF050505),
-                Color(0xFF090909),
-                NuvioPrimitives.neutral925
+                overlayColor,
+                panelColor,
+                raisedColor
             )
         )
     }
@@ -287,7 +289,7 @@ internal fun EpisodeOptionsOverlay(
                     if (isNoneStyle) {
                         Modifier.background(noneBackgroundBrush)
                     } else {
-                        Modifier.background(Color(0xFF050505))
+                        Modifier.background(overlayColor)
                     }
                 )
                 .onPreviewKeyEvent { event ->

@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,12 +41,15 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.IconButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.data.iptv.EpgProgramme
 import com.nuvio.tv.data.iptv.IptvChannel
+import com.nuvio.tv.data.iptv.IptvRepository
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 private const val SLOT_MS = 30 * 60_000L
@@ -90,7 +96,9 @@ internal fun GuideGrid(
     channels: List<IptvChannel>,
     guide: Map<String, List<EpgProgramme>>,
     nowMs: Long,
-    onPlay: (IptvChannel) -> Unit,
+    showChannelNumbers: Boolean = true,
+    onPlay: (IptvChannel, EpgProgramme?) -> Unit,
+    onPlayArchive: (IptvChannel, EpgProgramme) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val timeFormat = rememberTimeFormatter()
@@ -126,7 +134,7 @@ internal fun GuideGrid(
                     items(channels, key = { it.id }) { channel ->
                         Row(Modifier.fillMaxWidth().height(56.dp)) {
                             Text(
-                                text = listOfNotNull(channel.number?.toString(), channel.name).joinToString("  "),
+                                text = listOfNotNull(channel.number?.takeIf { showChannelNumbers }?.toString(), channel.name).joinToString("  "),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = NuvioTheme.colors.TextPrimary,
                                 maxLines = 2,
@@ -148,7 +156,19 @@ internal fun GuideGrid(
                                     GuideCellView(
                                         cell = cell,
                                         airing = cell.programme != null && cell.startMs <= nowMs && nowMs < cell.endMs,
-                                        onClick = { onPlay(channel) },
+                                        catchupAvailable = channel.catchupDays > 0 &&
+                                            cell.programme?.let {
+                                                it.endMs <= nowMs && it.endMs - it.startMs >= MIN_ARCHIVE_ICON_DURATION_MS &&
+                                                    IptvRepository.isCatchupAvailable(channel, it, nowMs)
+                                            } == true,
+                                        restartAvailable = channel.catchupDays > 0 &&
+                                            cell.programme?.let {
+                                                it.startMs <= nowMs && nowMs < it.endMs &&
+                                                    it.endMs - it.startMs >= MIN_ARCHIVE_ICON_DURATION_MS &&
+                                                    IptvRepository.isCatchupAvailable(channel, it, nowMs)
+                                            } == true,
+                                        onClick = { onPlay(channel, cell.programme) },
+                                        onPlayArchive = { cell.programme?.let { onPlayArchive(channel, it) } },
                                         modifier = Modifier
                                             .offset { IntOffset((dpPerMs * (cell.startMs - windowStart).toFloat()).roundToPx(), 0) }
                                             .width(dpPerMs * (cell.endMs - cell.startMs).toFloat())
@@ -187,7 +207,15 @@ internal fun GuideGrid(
 }
 
 @Composable
-private fun GuideCellView(cell: GuideCell, airing: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun GuideCellView(
+    cell: GuideCell,
+    airing: Boolean,
+    catchupAvailable: Boolean,
+    restartAvailable: Boolean,
+    onClick: () -> Unit,
+    onPlayArchive: () -> Unit,
+    modifier: Modifier
+) {
     Surface(
         onClick = onClick,
         modifier = modifier,
@@ -200,15 +228,34 @@ private fun GuideCellView(cell: GuideCell, airing: Boolean, onClick: () -> Unit,
             focusedContentColor = NuvioTheme.colors.FocusContent
         )
     ) {
-        Text(
-            text = cell.programme?.title?.ifBlank { null } ?: stringResource(R.string.live_guide_no_info),
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            Text(
+                text = cell.programme?.title?.ifBlank { null } ?: stringResource(R.string.live_guide_no_info),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (catchupAvailable || restartAvailable) {
+                IconButton(onClick = onPlayArchive, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Replay,
+                        contentDescription = stringResource(
+                            if (restartAvailable) R.string.live_restart_available else R.string.live_catchup_available
+                        ),
+                        modifier = Modifier.size(16.dp),
+                        tint = NuvioTheme.colors.Primary
+                    )
+                }
+            }
+        }
     }
 }
+
+private const val MIN_ARCHIVE_ICON_DURATION_MS = 15 * 60_000L
 
 /** Details of the highlighted programme, above the grid. Fixed height so the grid doesn't jump. */
 @Composable

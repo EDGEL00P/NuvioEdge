@@ -82,6 +82,19 @@
             android:foregroundServiceType="mediaPlayback" />
 
         <activity
+            android:name=".ui.components.ticker.SportsScorePipActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:theme="@style/Theme.MyApplication">
+            <meta-data
+                android:name="com.google.android.tv.pip.category"
+                android:value="ticker" />
+        </activity>
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

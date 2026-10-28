@@ -53,7 +53,7 @@ fun TorrentOverlay(
             ) {
                 Text(
                     text = "P2P",
-                    color = Color(0xFF4CAF50),
+                        color = NuvioTheme.colors.Success,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )

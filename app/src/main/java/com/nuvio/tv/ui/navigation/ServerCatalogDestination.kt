@@ -5,8 +5,8 @@ import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
-import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
-import com.nuvio.tv.ui.screens.ServerCatalogViewModel
+import com.nuvio.tv.ui.screens.catalog.CatalogSeeAllScreen
+import com.nuvio.tv.ui.screens.catalog.ServerCatalogViewModel
 import com.nuvio.tv.ui.screens.home.HomeViewModel
 
 @Composable

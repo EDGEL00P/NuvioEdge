@@ -74,12 +74,18 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.delay
 
-private val AuthTextPrimary = Color(0xFFF5F7F8)
-private val AuthTextSecondary = Color(0xFF969CA3)
-private val AuthPaneBackground = Color.White.copy(alpha = 0.022f)
-private val AuthPaneBorder = Color.White.copy(alpha = 0.07f)
-private val AuthSecondaryButtonBackground = Color.White.copy(alpha = 0.05f)
-private val AuthSecondaryButtonBorder = Color.White.copy(alpha = 0.09f)
+private val AuthTextPrimary: Color
+    @Composable get() = NuvioTheme.colors.TextPrimary
+private val AuthTextSecondary: Color
+    @Composable get() = NuvioTheme.colors.TextSecondary
+private val AuthPaneBackground: Color
+    @Composable get() = NuvioTheme.colors.Panel
+private val AuthPaneBorder: Color
+    @Composable get() = NuvioTheme.colors.Border
+private val AuthSecondaryButtonBackground: Color
+    @Composable get() = NuvioTheme.colors.BackgroundCard
+private val AuthSecondaryButtonBorder: Color
+    @Composable get() = NuvioTheme.colors.BorderMuted
 
 @Composable
 fun AuthQrSignInScreen(
@@ -100,6 +106,7 @@ fun AuthQrSignInScreen(
     var exitRequested by remember { mutableStateOf(false) }
     var showSignOutConfirmation by remember { mutableStateOf(false) }
     val loginFocusRequester = remember { FocusRequester() }
+    val authPaneBorder = AuthPaneBorder
 
     fun leaveAuthScreen() {
         exitRequested = true
@@ -201,7 +208,7 @@ fun AuthQrSignInScreen(
                     .background(AuthPaneBackground)
                     .drawBehind {
                         drawLine(
-                            color = AuthPaneBorder,
+                            color = authPaneBorder,
                             start = Offset(0f, 0f),
                             end = Offset(0f, size.height),
                             strokeWidth = 1.dp.toPx()
@@ -269,7 +276,7 @@ private fun AuthQrBrandPanel(
         verticalArrangement = Arrangement.Center
     ) {
         BrandWordmark(
-            contentDescription = stringResource(R.string.cd_nuvio),
+            contentDescription = stringResource(R.string.app_name),
             modifier = Modifier.height(60.dp),
             contentScale = ContentScale.Fit
         )
@@ -306,7 +313,7 @@ private fun AuthQrBrandPanel(
             Text(
                 text = fullAccount.email,
                 style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF7CFF9B)
+                color = NuvioTheme.colors.Success
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
@@ -512,8 +519,8 @@ private fun AuthEmailLoginForm(
         uiState.error?.takeIf { it.isNotBlank() }?.let { error ->
             StatusPill(
                 text = error,
-                containerColor = Color(0x33C62828),
-                contentColor = Color(0xFFFF6E6E)
+                containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
+                contentColor = NuvioTheme.colors.Error
             )
         }
     }
@@ -568,8 +575,8 @@ private fun AuthQrCodeBlock(
         if (uiState.error != null) {
             StatusPill(
                 text = statusText,
-                containerColor = Color(0x33C62828),
-                contentColor = Color(0xFFFF6E6E)
+                containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
+                contentColor = NuvioTheme.colors.Error
             )
         } else {
             Text(
@@ -809,7 +816,10 @@ private fun AccountStatItem(
     }
 }
 
-private fun Modifier.authGradientBackground(): Modifier = drawWithCache {
+@Composable
+private fun Modifier.authGradientBackground(): Modifier {
+    val colors = NuvioTheme.colors
+    return drawWithCache {
     val angleRadians = 122.0 * PI / 180.0
     val directionX = sin(angleRadians).toFloat()
     val directionY = (-cos(angleRadians)).toFloat()
@@ -825,20 +835,18 @@ private fun Modifier.authGradientBackground(): Modifier = drawWithCache {
     )
     val brush = Brush.linearGradient(
         colorStops = arrayOf(
-            0f to Color(0xFF21113B),
-            0.14f to Color(0xFF21113B),
-            0.26f to Color(0xFF1A0E2F),
-            0.36f to Color(0xFF130A23),
-            0.48f to Color(0xFF0A060F),
-            0.60f to Color(0xFF050408),
-            0.70f to Color.Black,
-            1f to Color.Black
+            0f to colors.FocusBackground,
+            0.20f to colors.FocusBackground,
+            0.40f to colors.Panel,
+            0.70f to colors.Background,
+            1f to colors.Background
         ),
         start = start,
         end = end
     )
     onDrawBehind {
         drawRect(brush = brush)
+    }
     }
 }
 

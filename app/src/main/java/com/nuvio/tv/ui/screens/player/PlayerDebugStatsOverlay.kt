@@ -125,7 +125,7 @@ internal fun PlayerDebugStatsOverlay(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0x99000000))
+            .background(com.nuvio.tv.ui.theme.NuvioTheme.colors.PlayerOverlay)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
@@ -137,12 +137,12 @@ internal fun PlayerDebugStatsOverlay(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF8A8A8A)
+                    color = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextSecondary
                 )
                 val (color, fontWeight) = when (stat.severity) {
-                    DebugStatSeverity.DANGER -> Color(0xFFF44336) to FontWeight.Bold
-                    DebugStatSeverity.WARNING -> Color(0xFFFFB300) to FontWeight.Bold
-                    DebugStatSeverity.NORMAL -> Color(0xFFF0F0F0) to FontWeight.Normal
+                    DebugStatSeverity.DANGER -> com.nuvio.tv.ui.theme.NuvioTheme.colors.Error to FontWeight.Bold
+                    DebugStatSeverity.WARNING -> com.nuvio.tv.ui.theme.NuvioTheme.colors.Warning to FontWeight.Bold
+                    DebugStatSeverity.NORMAL -> com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary to FontWeight.Normal
                 }
                 Text(
                     text = stat.value,

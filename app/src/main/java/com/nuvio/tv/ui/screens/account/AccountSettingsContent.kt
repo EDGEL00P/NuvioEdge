@@ -473,7 +473,7 @@ private fun SignOutSettingsButton(
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(NuvioTheme.spacing.xxs, Color(0xFFF44336).copy(alpha = 0.5f)),
+                    border = BorderStroke(NuvioTheme.spacing.xxs, NuvioTheme.colors.Error.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(NuvioTheme.radii.sm)
             )
         ),
@@ -488,13 +488,13 @@ private fun SignOutSettingsButton(
                 imageVector = Icons.AutoMirrored.Filled.Logout,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = Color(0xFFF44336)
+                            tint = NuvioTheme.colors.Error
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = stringResource(R.string.account_sign_out),
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFF44336),
+                            color = NuvioTheme.colors.Error,
                 fontWeight = FontWeight.Medium
             )
         }

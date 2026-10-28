@@ -2,9 +2,9 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
-import com.nuvio.tv.core.sync.WatchProgressSyncService
-import com.nuvio.tv.core.sync.WatchStateMutationStore
-import com.nuvio.tv.core.sync.WatchedItemsSyncService
+import com.nuvio.tv.core.sync.watch.WatchProgressSyncService
+import com.nuvio.tv.core.sync.watch.WatchStateMutationStore
+import com.nuvio.tv.core.sync.watch.WatchedItemsSyncService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.core.tracking.TrackingHistoryWriterRegistry
 import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry

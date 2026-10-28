@@ -5,11 +5,14 @@ import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.sync.watch.WatchProgressSyncService
+import com.nuvio.tv.core.sync.watch.WatchedItemsSyncService
 import com.nuvio.tv.data.local.StartupSyncPreferences
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.repository.AddonRepositoryImpl
 import com.nuvio.tv.data.repository.LibraryRepositoryImpl
 import com.nuvio.tv.data.repository.WatchProgressRepositoryImpl
+import com.nuvio.tv.core.sync.library.LibrarySyncService
 import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.CancellationException

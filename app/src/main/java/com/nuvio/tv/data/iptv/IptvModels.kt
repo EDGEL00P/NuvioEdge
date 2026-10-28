@@ -23,7 +23,13 @@ data class IptvSource(
     val password: String = "",
     /** Optional XMLTV guide URL. Blank = use the playlist's url-tvg or the Xtream xmltv.php. */
     val epgUrl: String = "",
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /** User-confirmed channel id -> XMLTV channel id overrides; persisted inside the encrypted source store. */
+    val manualEpgMappings: Map<String, String> = emptyMap(),
+    /** Added to every guide time from this source, for providers whose XMLTV clock is consistently off. */
+    val guideShiftMinutes: Int = 0,
+    /** Added only to archive requests when provider catch-up timestamps differ from guide time. */
+    val catchupShiftMinutes: Int = 0
 ) {
     /** True when the playlist/panel or guide is fetched over plain HTTP. */
     val isUnencrypted: Boolean
@@ -37,6 +43,21 @@ data class IptvSource(
 
     companion object {
         fun isCleartext(url: String): Boolean = url.trim().startsWith("http://", ignoreCase = true)
+
+        const val GUIDE_SHIFT_STEP_MINUTES = 30
+        const val MAX_GUIDE_SHIFT_MINUTES = 12 * 60
+        const val CATCHUP_SHIFT_STEP_MINUTES = 30
+        const val MAX_CATCHUP_SHIFT_MINUTES = 12 * 60
+
+        fun clampGuideShift(minutes: Int): Int {
+            val stepped = Math.round(minutes / GUIDE_SHIFT_STEP_MINUTES.toFloat()) * GUIDE_SHIFT_STEP_MINUTES
+            return stepped.coerceIn(-MAX_GUIDE_SHIFT_MINUTES, MAX_GUIDE_SHIFT_MINUTES)
+        }
+
+        fun clampCatchupShift(minutes: Int): Int {
+            val stepped = Math.round(minutes / CATCHUP_SHIFT_STEP_MINUTES.toFloat()) * CATCHUP_SHIFT_STEP_MINUTES
+            return stepped.coerceIn(-MAX_CATCHUP_SHIFT_MINUTES, MAX_CATCHUP_SHIFT_MINUTES)
+        }
     }
 }
 
@@ -53,7 +74,13 @@ data class IptvChannel(
     /** tvg-name, used as a fallback guide match when [epgId] is missing. */
     val epgName: String? = null,
     val number: Int? = null,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    /** Days of provider archive (Xtream `tv_archive_duration`); 0 = no catch-up. */
+    val catchupDays: Int = 0,
+    /** M3U archive URL template; supported tokens: {utc}, {utcend}, {duration}. */
+    val catchupTemplate: String? = null,
+    /** Source-level archive correction copied onto loaded channels for consistent UI eligibility. */
+    val catchupShiftMinutes: Int = 0
 ) {
     override fun toString(): String = "IptvChannel(id=$id, name=$name, group=$group)"
 }
@@ -72,5 +99,8 @@ data class EpgProgramme(
     val title: String,
     val description: String? = null
 )
+
+internal fun List<EpgProgramme>.shiftedBy(shiftMs: Long): List<EpgProgramme> =
+    if (shiftMs == 0L) this else map { it.copy(startMs = it.startMs + shiftMs, endMs = it.endMs + shiftMs) }
 
 class IptvException(message: String, cause: Throwable? = null) : Exception(message, cause)

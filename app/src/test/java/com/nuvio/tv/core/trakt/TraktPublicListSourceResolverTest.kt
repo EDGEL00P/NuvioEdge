@@ -18,7 +18,7 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktProminentListDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktSearchResultDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktShowDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktUserDto
-import com.nuvio.tv.data.repository.TraktAuthService
+import com.nuvio.tv.data.repository.trakt.TraktAuthService
 import com.nuvio.tv.domain.model.TmdbCollectionMediaType
 import com.nuvio.tv.domain.model.TraktCollectionSource
 import io.mockk.coEvery

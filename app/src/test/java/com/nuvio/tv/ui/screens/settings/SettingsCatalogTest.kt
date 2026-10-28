@@ -22,6 +22,7 @@ class SettingsCatalogTest {
                 SettingsCategory.APPEARANCE,
                 SettingsCategory.LAYOUT,
                 SettingsCategory.CONTENT_DISCOVERY,
+                SettingsCategory.LIVE_TV,
                 SettingsCategory.PLAYBACK,
                 SettingsCategory.INTEGRATION,
                 SettingsCategory.TRACKING,
@@ -44,6 +45,7 @@ class SettingsCatalogTest {
         assertFalse(SettingsCategory.ACCOUNT in categories)
         assertFalse(SettingsCategory.PROFILES in categories)
         assertEquals(SettingsCategory.APPEARANCE, categories.first())
+        assertTrue(SettingsCategory.LIVE_TV in categories)
     }
 
     @Test
@@ -122,6 +124,16 @@ class SettingsCatalogTest {
             listOf(SettingsCategory.ACCOUNT, SettingsCategory.PROFILES, SettingsCategory.WATCH_PARTY),
             visibleSettingsCategories(true, isEssentialMode = false, isDebugBuild = false, isWatchPartyAvailable = true).take(3)
         )
+    }
+
+    @Test
+    fun `Live TV appears between discovery and playback in both experience modes`() {
+        listOf(false, true).forEach { essential ->
+            val categories = visibleSettingsCategories(true, essential, isDebugBuild = false)
+            val discoveryIndex = categories.indexOf(SettingsCategory.CONTENT_DISCOVERY)
+            assertEquals(SettingsCategory.LIVE_TV, categories[discoveryIndex + 1])
+            assertEquals(SettingsCategory.PLAYBACK, categories[discoveryIndex + 2])
+        }
     }
 
     private fun allCombinations(): List<List<SettingsCategory>> =

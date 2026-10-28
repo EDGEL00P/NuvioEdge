@@ -17,10 +17,10 @@ import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.qr.QrCodeGenerator
 import com.nuvio.tv.core.sync.AddonSyncService
-import com.nuvio.tv.core.sync.LibrarySyncService
+import com.nuvio.tv.core.sync.library.LibrarySyncService
 import com.nuvio.tv.core.sync.PluginSyncService
-import com.nuvio.tv.core.sync.WatchProgressSyncService
-import com.nuvio.tv.core.sync.WatchedItemsSyncService
+import com.nuvio.tv.core.sync.watch.WatchProgressSyncService
+import com.nuvio.tv.core.sync.watch.WatchedItemsSyncService
 import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.ProviderCredentialSyncService
 import com.nuvio.tv.data.local.LibraryPreferences

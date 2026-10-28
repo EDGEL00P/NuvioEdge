@@ -318,7 +318,7 @@ private fun AttributionLogo(
         modifier = Modifier
             .size(52.dp)
             .clip(RoundedCornerShape(NuvioTheme.radii.md))
-            .background(Color(0xFF24272E)),
+                    .background(NuvioTheme.colors.BackgroundCard),
         contentAlignment = Alignment.Center
     ) {
         Image(

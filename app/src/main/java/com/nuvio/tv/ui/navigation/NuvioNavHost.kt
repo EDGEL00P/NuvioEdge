@@ -28,9 +28,9 @@ import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.core.party.PartyMedia
 import com.nuvio.tv.domain.model.ExperienceMode
 import com.nuvio.tv.data.mediaserver.ServerCatalog
-import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
-import com.nuvio.tv.ui.screens.ExperienceModeSelectionScreen
-import com.nuvio.tv.ui.screens.LayoutSelectionScreen
+import com.nuvio.tv.ui.screens.catalog.CatalogSeeAllScreen
+import com.nuvio.tv.ui.screens.settings.ExperienceModeSelectionScreen
+import com.nuvio.tv.ui.screens.settings.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
@@ -1237,8 +1237,9 @@ private fun PlaybackNavHost(
 
         composable(Screen.Live.route) {
             com.nuvio.tv.ui.screens.live.LiveTvScreen(
-                onPlayChannel = { channel, nowTitle ->
-                    navController.navigate(com.nuvio.tv.ui.screens.live.liveChannelPlayerRoute(channel, nowTitle))
+                onPlayChannel = { channel, nowTitle, playbackUrl ->
+                    val playbackChannel = playbackUrl?.let { channel.copy(streamUrl = it) } ?: channel
+                    navController.navigate(com.nuvio.tv.ui.screens.live.liveChannelPlayerRoute(playbackChannel, nowTitle))
                 },
                 onOpenMultiview = { navController.navigate(Screen.LiveMultiview.route) }
             )

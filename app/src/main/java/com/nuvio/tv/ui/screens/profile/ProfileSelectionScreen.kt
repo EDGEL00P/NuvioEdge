@@ -242,10 +242,11 @@ fun ProfileSelectionScreen(
     var pinOverlayState by remember { mutableStateOf<ProfilePinOverlayState?>(null) }
     var pinOverlayError by remember { mutableStateOf<String?>(null) }
     var profileActionMessage by remember { mutableStateOf<String?>(null) }
-    val onProfileFocusedChange = remember(onProfileFocusChanged, onProfileThemeFocused) {
+    val defaultAvatarColor = NuvioTheme.colors.Secondary
+    val onProfileFocusedChange = remember(onProfileFocusChanged, onProfileThemeFocused, defaultAvatarColor) {
         { profile: UserProfile? ->
             focusedProfileId = profile?.id
-            focusedAvatarColor = profile?.avatarColorHex?.let(::parseProfileColor) ?: Color(0xFF555555)
+            focusedAvatarColor = profile?.avatarColorHex?.let(::parseProfileColor) ?: defaultAvatarColor
             Unit
         }
     }
@@ -733,7 +734,7 @@ fun ProfileSelectionScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.colors(
-                            containerColor = Color(0xFF4A2323),
+                            containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
                             contentColor = NuvioTheme.colors.TextPrimary
                         )
                     ) {
@@ -811,7 +812,7 @@ fun ProfileSelectionScreen(
                             profileToDelete = null
                         },
                         colors = ButtonDefaults.colors(
-                            containerColor = Color(0xFF4A2323),
+                            containerColor = NuvioTheme.colors.Error.copy(alpha = 0.18f),
                             contentColor = NuvioTheme.colors.TextPrimary
                         )
                     ) {
@@ -833,10 +834,8 @@ private fun ProfileSelectionBackground(
         animationSpec = tween(durationMillis = 520),
         label = "focusedAvatarColor"
     )
-    // Use fixed dark colors so the gradient is consistent.
-    // Otherwise, profile selector and splash screen needs to know about user template
-    val baseBg = Color(0xFF121212)
-    val baseBgElevated = NuvioPrimitives.neutral875
+    val baseBg = NuvioTheme.colors.Background
+    val baseBgElevated = NuvioTheme.colors.BackgroundElevated
     val gradientTop = lerp(baseBgElevated, animatedAvatarColor, 0.3f)
     val gradientMid = lerp(baseBg, animatedAvatarColor, 0.14f)
     val halfFadeStrong = animatedAvatarColor.copy(alpha = 0.26f)
@@ -927,7 +926,7 @@ private fun ProfileSelectionMainContent(
     ) {
         MemberBrandWordmark(
             height = ProfileSelectionSpacing.LogoHeight,
-            contentDescription = stringResource(R.string.cd_nuvio_logo),
+            contentDescription = stringResource(R.string.app_name),
             drawableOverride = brandWordmarkRes
         )
 
@@ -1213,7 +1212,7 @@ private fun ProfileCard(
                         .offset(x = NuvioTheme.spacing.xxs, y = NuvioTheme.spacing.hairline)
                         .size(if (compact) 22.dp else 26.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFFFB300), CircleShape)
+                        .background(NuvioTheme.colors.Warning, CircleShape)
                         .border(
                             width = NuvioTheme.spacing.xxs,
                             color = NuvioTheme.colors.Background,
@@ -1261,7 +1260,7 @@ private fun ProfileCard(
             if (profile.isPrimary) {
                 Text(
                     text = stringResource(R.string.profile_selection_primary_badge),
-                    color = Color(0xFFFFB300),
+                        color = NuvioTheme.colors.Warning,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.8.sp
@@ -2279,7 +2278,7 @@ private fun ProfilePinOverlay(
             else -> stringResource(R.string.profile_pin_overlay_set_support)
         }
         val supportTextColor = if (isErrorState) {
-            Color(0xFFFF8E8E)
+            NuvioTheme.colors.Error
         } else {
             NuvioTheme.colors.TextSecondary
         }
@@ -2431,19 +2430,19 @@ private fun ProfilePinBoxes(
                 !isWorking
             val borderColor by animateColorAsState(
                 targetValue = when {
-                    isErrorState -> Color(0xFFE35D5D)
-                    isFilled -> Color.White.copy(alpha = 0.92f)
-                    isActive -> Color.White
-                    else -> Color.White.copy(alpha = 0.72f)
+                    isErrorState -> NuvioTheme.colors.Error
+                    isFilled -> NuvioTheme.colors.Secondary.copy(alpha = 0.92f)
+                    isActive -> NuvioTheme.colors.FocusRing
+                    else -> NuvioTheme.colors.Border
                 },
                 animationSpec = tween(140),
                 label = "pinBoxBorder"
             )
             val backgroundColor by animateColorAsState(
                 targetValue = when {
-                    isErrorState -> Color(0xFF311818).copy(alpha = 0.76f)
-                    isFilled -> Color.White.copy(alpha = 0.07f)
-                    isActive -> Color.White.copy(alpha = 0.04f)
+                    isErrorState -> NuvioTheme.colors.Error.copy(alpha = 0.18f)
+                    isFilled -> NuvioTheme.colors.BackgroundElevated
+                    isActive -> NuvioTheme.colors.FocusBackground
                     else -> Color.Transparent
                 },
                 animationSpec = tween(140),

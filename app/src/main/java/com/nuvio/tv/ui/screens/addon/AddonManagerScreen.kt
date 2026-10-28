@@ -297,7 +297,7 @@ fun AddonManagerScreen(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A3A5C)),
+                        colors = CardDefaults.cardColors(containerColor = NuvioTheme.colors.BackgroundElevated),
                         shape = RoundedCornerShape(NuvioTheme.radii.md)
                     ) {
                         Text(

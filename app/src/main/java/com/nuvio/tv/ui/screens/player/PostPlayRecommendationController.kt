@@ -16,7 +16,7 @@ import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.data.repository.MDBListRepository
-import com.nuvio.tv.data.repository.TraktRelatedService
+import com.nuvio.tv.data.repository.trakt.TraktRelatedService
 import com.nuvio.tv.data.simkl.SimklAuthRepository
 import com.nuvio.tv.data.simkl.SimklRelatedService
 import com.nuvio.tv.data.trailer.TrailerService

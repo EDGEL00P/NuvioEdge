@@ -64,8 +64,8 @@ fun StartupSplashScreen(
                 contentScale = ContentScale.Crop
             )
         } else if (!skipGradient) {
-            val baseBg = Color(0xFF121212)
-            val baseBgElevated = NuvioPrimitives.neutral875
+            val baseBg = NuvioTheme.colors.Background
+            val baseBgElevated = NuvioTheme.colors.BackgroundElevated
             val gradientTop = lerp(baseBgElevated, avatarColor, 0.3f)
             val gradientMid = lerp(baseBg, avatarColor, 0.14f)
             val halfFadeStrong = avatarColor.copy(alpha = 0.26f)
@@ -103,7 +103,7 @@ fun StartupSplashScreen(
         ) {
             BrandWordmark(
                 modifier = Modifier.height(48.dp),
-                contentDescription = stringResource(R.string.cd_nuvio_logo),
+                contentDescription = stringResource(R.string.app_name),
                 drawableOverride = brandWordmarkRes
             )
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.xxl))

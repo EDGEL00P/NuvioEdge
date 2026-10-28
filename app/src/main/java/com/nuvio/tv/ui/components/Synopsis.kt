@@ -220,9 +220,9 @@ fun SynopsisOverlay(
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            Color(0xFF070707),
-                            Color(0xFF101010),
-                            Color(0xFF151515)
+                            NuvioTheme.colors.Background,
+                            NuvioTheme.colors.Panel,
+                            NuvioTheme.colors.BackgroundElevated
                         )
                     )
                 )

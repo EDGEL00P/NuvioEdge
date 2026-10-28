@@ -19,9 +19,9 @@ import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.repository.ImdbEpisodeRatingsRepository
 import com.nuvio.tv.data.repository.MDBListRepository
-import com.nuvio.tv.data.repository.TraktCommentsService
-import com.nuvio.tv.data.repository.TraktRelatedService
-import com.nuvio.tv.data.repository.parseContentIds
+import com.nuvio.tv.data.repository.trakt.TraktCommentsService
+import com.nuvio.tv.data.repository.trakt.TraktRelatedService
+import com.nuvio.tv.data.repository.trakt.parseContentIds
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode

@@ -1613,7 +1613,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 )
             }
             contentId?.takeIf { it.isNotBlank() }?.let { id ->
-                scope.launch { trackPreferenceDataStore.savePlaybackSpeed(id, event.speed) }
+                scope.launch { trackPreferenceDataStore.savePlaybackSpeed(id, event.speed, trackPreferenceOwnerProfileId) }
             }
             publishPartyPlayback(rate = event.speed)
         }

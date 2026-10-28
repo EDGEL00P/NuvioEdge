@@ -678,7 +678,7 @@ private fun PlayerRuntimeController.currentTrackPreferenceForPersistence(): Play
 }
 
 internal fun PlayerRuntimeController.persistTrackPreference() {
-    val id = contentId ?: return
+    val id = trackPreferenceStorageKey ?: return
     // Use the currently-effective preference (remembered OR previously persisted)
     // so that a delay-only change does not wipe a previously-saved track selection.
     // For the resume-from-CW case, rememberedTrackPreference is null for the fresh
@@ -709,16 +709,17 @@ internal fun PlayerRuntimeController.persistTrackPreference() {
         audioName = audio?.name,
         audioTrackId = audio?.trackId
     )
-    scope.launch { trackPreferenceDataStore.save(id, persisted) }
+    scope.launch { trackPreferenceDataStore.save(id, persisted, trackPreferenceOwnerProfileId) }
     // Subtitle delay is keyed per-videoId (not per-contentId) because a delay
     // calibrated against one episode release rarely applies to the next
     // episode. Scoping it to the exact video prevents cross-episode leakage.
     // See issue #1063 discussion.
     val vid = currentVideoId?.takeIf { it.isNotBlank() }
     if (vid != null) {
+        val delayKey = subtitleDelayStorageKey(vid)
         val currentDelayMs = _uiState.value.subtitleDelayMs
         scope.launch {
-            trackPreferenceDataStore.saveSubtitleDelayMs(vid, currentDelayMs.takeIf { it != 0 })
+            trackPreferenceDataStore.saveSubtitleDelayMs(delayKey, currentDelayMs.takeIf { it != 0 }, trackPreferenceOwnerProfileId)
         }
     }
 }

@@ -2,12 +2,17 @@ package com.nuvio.tv.ui.screens.live
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.data.iptv.EpgSourceReport
 import com.nuvio.tv.data.iptv.EpgProgramme
 import com.nuvio.tv.data.iptv.IptvChannel
 import com.nuvio.tv.data.iptv.IptvRepository
 import com.nuvio.tv.data.iptv.IptvSource
+import com.nuvio.tv.data.iptv.IptvSourceHealth
+import com.nuvio.tv.data.iptv.IptvSourceHealthStatus
 import com.nuvio.tv.data.iptv.IptvSourceType
 import com.nuvio.tv.data.iptv.LiveStreamGuard
+import com.nuvio.tv.data.local.LiveTvSettings
+import com.nuvio.tv.data.local.LiveTvSettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -24,30 +29,35 @@ data class LiveGroup(val key: String, val title: String, val count: Int)
 
 data class LiveTvUiState(
     val sourcesLoaded: Boolean = false,
+    val settingsLoaded: Boolean = false,
     val sources: List<IptvSource> = emptyList(),
     val loading: Boolean = false,
+    val sourceLoadCompleted: Int = 0,
+    val sourceLoadTotal: Int = 0,
     val errors: Map<String, String> = emptyMap(),
+    val sourceHealth: List<IptvSourceHealth> = emptyList(),
     val allChannels: List<IptvChannel> = emptyList(),
+    val orderedChannels: List<IptvChannel> = emptyList(),
+    val visibleChannels: List<IptvChannel> = emptyList(),
     val groups: List<LiveGroup> = emptyList(),
     val selectedGroup: String = LiveTvViewModel.GROUP_ALL,
     val favorites: Set<String> = emptySet(),
     val guide: Map<String, List<EpgProgramme>> = emptyMap(),
+    val guideReports: List<EpgSourceReport> = emptyList(),
     val guideLoading: Boolean = false,
+    val settings: LiveTvSettings = LiveTvSettings(),
     val nowMs: Long = System.currentTimeMillis()
 ) {
-    val channels: List<IptvChannel>
-        get() = when (selectedGroup) {
-            LiveTvViewModel.GROUP_ALL -> allChannels
-            LiveTvViewModel.GROUP_FAVORITES -> allChannels.filter { it.id in favorites }
-            else -> allChannels.filter { it.group == selectedGroup }
-        }
+    val channels: List<IptvChannel> get() = visibleChannels
 }
 
 data class AddSourceState(val saving: Boolean = false, val error: String? = null)
+data class EpgMappingState(val saving: Boolean = false, val error: String? = null)
 
 @HiltViewModel
 class LiveTvViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val settingsStore: LiveTvSettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LiveTvUiState())
@@ -56,7 +66,11 @@ class LiveTvViewModel @Inject constructor(
     private val _addState = MutableStateFlow(AddSourceState())
     val addState: StateFlow<AddSourceState> = _addState.asStateFlow()
 
+    private val _epgMappingState = MutableStateFlow(EpgMappingState())
+    val epgMappingState: StateFlow<EpgMappingState> = _epgMappingState.asStateFlow()
+
     private var loadJob: Job? = null
+    private var guideRetryJob: Job? = null
     private var addJob: Job? = null
 
     /** True while the Live TV screen is on screen; the background refresh only runs then. */
@@ -65,9 +79,18 @@ class LiveTvViewModel @Inject constructor(
 
     init {
         viewModelScope.launch(liveErrors) {
+            settingsStore.settings.collect { settings ->
+                _uiState.update { state ->
+                    val reorder = state.settings.channelSort != settings.channelSort
+                    state.copy(settings = settings, settingsLoaded = true).withGroups(reorder = reorder)
+                }
+            }
+        }
+        viewModelScope.launch(liveErrors) {
             repository.sources.distinctUntilChanged().collect { sources ->
-                val changed = sources.map { it.contentKey to it.enabled } !=
-                    _uiState.value.sources.map { it.contentKey to it.enabled }
+                fun List<com.nuvio.tv.data.iptv.IptvSource>.guideInputs() =
+                    map { listOf(it.contentKey, it.enabled, it.manualEpgMappings, it.guideShiftMinutes, it.catchupShiftMinutes) }
+                val changed = sources.guideInputs() != _uiState.value.sources.guideInputs()
                 _uiState.update { it.copy(sources = sources, sourcesLoaded = true) }
                 if (changed || _uiState.value.allChannels.isEmpty()) load(force = false)
             }
@@ -97,28 +120,93 @@ class LiveTvViewModel @Inject constructor(
     private fun onClockTick() {
         val now = System.currentTimeMillis()
         _uiState.update { it.copy(nowMs = now) }
-        if (lastLoadMs != 0L && now - lastLoadMs >= REFRESH_EVERY_MS && !_uiState.value.loading) load(force = false)
+        val state = _uiState.value
+        if (state.settings.autoRefreshWhileVisible && lastLoadMs != 0L &&
+            now - lastLoadMs >= REFRESH_EVERY_MS && !state.loading
+        ) load(force = false)
     }
 
     private fun load(force: Boolean) {
         loadJob?.cancel()
+        guideRetryJob?.cancel()
+        guideRetryJob = null
         val sources = _uiState.value.sources
         if (sources.none { it.enabled }) {
-            _uiState.update { it.copy(allChannels = emptyList(), guide = emptyMap(), errors = emptyMap(), loading = false).withGroups() }
+            _uiState.update {
+                it.copy(
+                    allChannels = emptyList(),
+                    guide = emptyMap(),
+                    guideReports = emptyList(),
+                    errors = emptyMap(),
+                    sourceHealth = emptyList(),
+                    loading = false,
+                    sourceLoadCompleted = 0,
+                    sourceLoadTotal = 0,
+                    guideLoading = false
+                ).withGroups(reorder = true)
+            }
             return
         }
         lastLoadMs = System.currentTimeMillis()
         loadJob = viewModelScope.launch(liveErrors) {
             val job = coroutineContext[Job]
-            _uiState.update { it.copy(loading = true) }
+            val previousState = _uiState.value
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    sourceLoadCompleted = 0,
+                    sourceLoadTotal = sources.count { source -> source.enabled }
+                )
+            }
             try {
-                val result = repository.loadChannels(sources, force)
-                _uiState.update {
-                    it.copy(allChannels = result.channels, errors = result.errors, loading = false).withGroups()
+                val result = repository.loadChannels(sources, force) { completed, total ->
+                    if (loadJob === job) {
+                        _uiState.update { state ->
+                            state.copy(
+                                sourceLoadCompleted = maxOf(state.sourceLoadCompleted, completed),
+                                sourceLoadTotal = total
+                            )
+                        }
+                    }
                 }
-                _uiState.update { it.copy(guideLoading = true) }
-                val guide = repository.loadGuide(sources, result.channels, force)
-                _uiState.update { it.copy(guide = guide, nowMs = System.currentTimeMillis()) }
+                val failedSourceIds = result.sourceHealth
+                    .filter { it.status == IptvSourceHealthStatus.ERROR }
+                    .mapTo(HashSet()) { it.sourceId }
+                val staleChannels = previousState.allChannels.filter { it.sourceId in failedSourceIds }
+                val staleChannelIds = staleChannels.mapTo(HashSet()) { it.id }
+                val staleGuide = previousState.guide.filterKeys { it in staleChannelIds }
+                val staleGuideReports = previousState.guideReports
+                    .filter { it.sourceId in failedSourceIds }
+                    .map { it.copy(stale = true) }
+                val sourceHealth = result.sourceHealth.map { health ->
+                    if (health.sourceId in failedSourceIds) {
+                        val oldChannelCount = staleChannels.count { it.sourceId == health.sourceId }
+                        if (oldChannelCount > 0) health.copy(
+                            status = IptvSourceHealthStatus.STALE,
+                            channelCount = oldChannelCount
+                        ) else health
+                    } else health
+                }
+                _uiState.update {
+                    it.copy(
+                        allChannels = result.channels + staleChannels,
+                        guide = staleGuide,
+                        guideReports = staleGuideReports,
+                        errors = result.errors,
+                        sourceHealth = sourceHealth,
+                        loading = false,
+                        guideLoading = true
+                    ).withGroups(reorder = true)
+                }
+                val guideSources = sources.filter { it.enabled && it.id !in failedSourceIds }
+                val guide = repository.loadGuideWithReport(guideSources, result.channels, force)
+                _uiState.update {
+                    it.copy(
+                        guide = it.guide + guide.programmesByChannel,
+                        guideReports = it.guideReports + guide.sources,
+                        nowMs = System.currentTimeMillis()
+                    )
+                }
             } finally {
                 // Never leave a spinner up; a load replaced by a newer one leaves the newer one's alone.
                 if (loadJob === job) _uiState.update { it.copy(loading = false, guideLoading = false) }
@@ -126,7 +214,118 @@ class LiveTvViewModel @Inject constructor(
         }
     }
 
-    fun selectGroup(key: String) = _uiState.update { it.copy(selectedGroup = key) }
+    fun retrySource(sourceId: String) {
+        val source = _uiState.value.sources.firstOrNull { it.id == sourceId && it.enabled } ?: return
+        if (_uiState.value.loading) return
+        guideRetryJob?.cancel()
+        guideRetryJob = null
+        loadJob?.cancel()
+        lastLoadMs = System.currentTimeMillis()
+        loadJob = viewModelScope.launch(liveErrors) {
+            val job = coroutineContext[Job]
+            val previousChannelIds = _uiState.value.allChannels
+                .asSequence()
+                .filter { it.sourceId == sourceId }
+                .map { it.id }
+                .toSet()
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    guideLoading = false,
+                    sourceLoadCompleted = 0,
+                    sourceLoadTotal = 1
+                )
+            }
+            try {
+                val result = repository.loadChannels(listOf(source), force = true) { completed, total ->
+                    if (loadJob === job) {
+                        _uiState.update {
+                            it.copy(
+                                sourceLoadCompleted = maxOf(it.sourceLoadCompleted, completed),
+                                sourceLoadTotal = total
+                            )
+                        }
+                    }
+                }
+                if (_uiState.value.sources.none { it.id == sourceId && it.enabled }) return@launch
+                val staleFallback = result.errors.containsKey(sourceId) && result.channels.isEmpty()
+                _uiState.update { state ->
+                    val previousSourceChannels = state.allChannels.filter { it.sourceId == sourceId }
+                    val keepPreviousData = staleFallback && previousSourceChannels.isNotEmpty()
+                    val retainedChannels = state.allChannels.filterNot { it.sourceId == sourceId }
+                    val retainedGuide = if (keepPreviousData) state.guide else state.guide.filterKeys { it !in previousChannelIds }
+                    val sourceHealth = result.sourceHealth.map { health ->
+                        if (keepPreviousData && health.sourceId == sourceId) {
+                            health.copy(status = com.nuvio.tv.data.iptv.IptvSourceHealthStatus.STALE, channelCount = previousSourceChannels.size)
+                        } else health
+                    }
+                    state.copy(
+                        allChannels = retainedChannels + if (keepPreviousData) previousSourceChannels else result.channels,
+                        guide = retainedGuide,
+                        guideReports = if (keepPreviousData) {
+                            state.guideReports.filterNot { it.sourceId == sourceId } +
+                                state.guideReports.filter { it.sourceId == sourceId }.map { it.copy(stale = true) }
+                        } else state.guideReports.filterNot { it.sourceId == sourceId },
+                        errors = state.errors - sourceId + result.errors,
+                        sourceHealth = state.sourceHealth.filterNot { it.sourceId == sourceId } + sourceHealth,
+                        guideLoading = !keepPreviousData
+                    ).withGroups(reorder = true)
+                }
+                if (staleFallback) return@launch
+                val guide = repository.loadGuideWithReport(listOf(source), result.channels, force = true)
+                if (_uiState.value.sources.any { it.id == sourceId && it.enabled }) {
+                    _uiState.update { state ->
+                        state.copy(
+                            guide = state.guide + guide.programmesByChannel,
+                            guideReports = state.guideReports.filterNot { it.sourceId == sourceId } + guide.sources,
+                            nowMs = System.currentTimeMillis()
+                        )
+                    }
+                }
+            } finally {
+                if (loadJob === job) _uiState.update { it.copy(loading = false, guideLoading = false) }
+            }
+        }
+    }
+
+    fun retryGuide(sourceId: String) {
+        val state = _uiState.value
+        val source = state.sources.firstOrNull { it.id == sourceId && it.enabled } ?: return
+        if (state.loading || state.guideLoading) return
+        val channels = state.allChannels.filter { it.sourceId == sourceId }
+        if (channels.isEmpty()) return
+        guideRetryJob?.cancel()
+        guideRetryJob = viewModelScope.launch(liveErrors) {
+            val job = coroutineContext[Job]
+            val channelIds = channels.mapTo(HashSet()) { it.id }
+            _uiState.update { it.copy(guideLoading = true) }
+            try {
+                val result = repository.loadGuideWithReport(listOf(source), channels, force = true)
+                if (_uiState.value.sources.none { it.id == sourceId && it.enabled }) return@launch
+                _uiState.update { current ->
+                    val previousGuide = current.guide.filterKeys { it in channelIds }
+                    val previousReports = current.guideReports.filter { it.sourceId == sourceId }
+                    val keepPreviousGuide = previousGuide.isNotEmpty() && result.sources.any {
+                        it.status == com.nuvio.tv.data.iptv.EpgSourceStatus.LOAD_ERROR
+                    }
+                    current.copy(
+                        guide = if (keepPreviousGuide) current.guide else current.guide.filterKeys { it !in channelIds } + result.programmesByChannel,
+                        guideReports = current.guideReports.filterNot { it.sourceId == sourceId } +
+                            if (keepPreviousGuide && previousReports.isNotEmpty()) {
+                                previousReports.map { it.copy(stale = true) }
+                            } else result.sources.map { it.copy(stale = keepPreviousGuide) }
+                    )
+                }
+            } finally {
+                if (guideRetryJob === job) {
+                    guideRetryJob = null
+                    _uiState.update { it.copy(guideLoading = false) }
+                }
+            }
+        }
+    }
+
+    fun selectGroup(key: String) = _uiState.update { it.copy(selectedGroup = key).withVisibleChannels() }
 
     fun toggleFavorite(channel: IptvChannel) {
         viewModelScope.launch(liveErrors) { repository.toggleFavorite(channel.id) }
@@ -140,6 +339,27 @@ class LiveTvViewModel @Inject constructor(
         viewModelScope.launch(liveErrors) { repository.setSourceEnabled(id, enabled) }
     }
 
+    fun resetEpgMappingState() = _epgMappingState.update { EpgMappingState() }
+
+    fun setManualEpgMapping(sourceId: String, channelId: String, guideId: String?, onDone: () -> Unit) {
+        if (_epgMappingState.value.saving) return
+        viewModelScope.launch(liveErrors) {
+            _epgMappingState.value = EpgMappingState(saving = true)
+            try {
+                repository.setManualEpgMapping(sourceId, channelId, guideId)
+                _epgMappingState.value = EpgMappingState()
+                onDone()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _epgMappingState.value = EpgMappingState(error = IptvRepository.userMessage(e))
+            }
+        }
+    }
+
+    suspend fun catchupUrl(channel: IptvChannel, programme: EpgProgramme, nowMs: Long): String? =
+        repository.catchupUrl(channel, programme, nowMs)
+
     fun resetAddState() = _addState.update { AddSourceState() }
 
     fun addSource(
@@ -149,13 +369,42 @@ class LiveTvViewModel @Inject constructor(
         username: String,
         password: String,
         epgUrl: String,
+        guideShiftMinutes: Int,
+        catchupShiftMinutes: Int = 0,
         onDone: () -> Unit
     ) {
         if (_addState.value.saving) return
         addJob = viewModelScope.launch(liveErrors) {
             _addState.value = AddSourceState(saving = true)
             try {
-                repository.addSource(name, type, url, username, password, epgUrl)
+                repository.addSource(name, type, url, username, password, epgUrl, guideShiftMinutes, catchupShiftMinutes)
+                _addState.value = AddSourceState()
+                onDone()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _addState.value = AddSourceState(error = IptvRepository.userMessage(e))
+            }
+        }
+    }
+
+    fun updateSource(
+        id: String,
+        name: String,
+        type: IptvSourceType,
+        url: String,
+        username: String,
+        password: String,
+        epgUrl: String,
+        guideShiftMinutes: Int,
+        catchupShiftMinutes: Int,
+        onDone: () -> Unit
+    ) {
+        if (_addState.value.saving) return
+        addJob = viewModelScope.launch(liveErrors) {
+            _addState.value = AddSourceState(saving = true)
+            try {
+                repository.updateSource(id, name, type, url, username, password, epgUrl, guideShiftMinutes, catchupShiftMinutes)
                 _addState.value = AddSourceState()
                 onDone()
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -176,10 +425,18 @@ class LiveTvViewModel @Inject constructor(
     /** Remembers the list the user is zapping through so CH+/CH- in the player can move along it. */
     fun startZapSession(channel: IptvChannel) {
         val state = _uiState.value
-        LiveZapSession.start(state.channels, channel, state.guide, state.allChannels)
+        LiveZapSession.start(
+            state.channels,
+            channel,
+            state.guide,
+            state.allChannels,
+            wrapAtEnds = state.settings.wrapZap,
+            showChannelNumbers = state.settings.showChannelNumbers,
+            showOsdAfterTune = state.settings.showOsdAfterTune
+        )
     }
 
-    private fun LiveTvUiState.withGroups(): LiveTvUiState {
+    private fun LiveTvUiState.withGroups(reorder: Boolean = false): LiveTvUiState {
         val groups = buildList {
             val favCount = allChannels.count { it.id in favorites }
             if (favCount > 0) add(LiveGroup(GROUP_FAVORITES, GROUP_FAVORITES, favCount))
@@ -189,8 +446,17 @@ class LiveTvViewModel @Inject constructor(
             }
         }
         val selected = selectedGroup.takeIf { key -> groups.any { it.key == key } } ?: GROUP_ALL
-        return copy(groups = groups, selectedGroup = selected)
+        val ordered = if (reorder) sortLiveChannels(allChannels, settings.channelSort) else orderedChannels
+        return copy(
+            groups = groups,
+            selectedGroup = selected,
+            orderedChannels = ordered,
+            visibleChannels = visibleLiveChannels(ordered, favorites, selected)
+        )
     }
+
+    private fun LiveTvUiState.withVisibleChannels(): LiveTvUiState =
+        copy(visibleChannels = visibleLiveChannels(orderedChannels, favorites, selectedGroup))
 
     companion object {
         private const val REFRESH_EVERY_MS = 30 * 60 * 1000L
@@ -209,6 +475,13 @@ object LiveZapSession {
     @Volatile private var index: Int = -1
     @Volatile private var current: IptvChannel? = null
     @Volatile private var previous: IptvChannel? = null
+    @Volatile private var wrapAtEnds = true
+    @Volatile private var showChannelNumbers = true
+    @Volatile private var showOsdAfterTune = true
+    @Volatile private var failoverActive = false
+    @Volatile private var revision = 0L
+    private val _snapshot = kotlinx.coroutines.flow.MutableStateFlow<LiveZapSnapshot?>(null)
+    val snapshot: StateFlow<LiveZapSnapshot?> = _snapshot.asStateFlow()
     /** Copies already tried for the channel that failed. */
     private val tried = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     /** Reconnects of the same stream when no backup copy is left. */
@@ -240,7 +513,10 @@ object LiveZapSession {
         list: List<IptvChannel>,
         channel: IptvChannel,
         guideMap: Map<String, List<EpgProgramme>>,
-        allChannels: List<IptvChannel> = list
+        allChannels: List<IptvChannel> = list,
+        wrapAtEnds: Boolean = true,
+        showChannelNumbers: Boolean = true,
+        showOsdAfterTune: Boolean = true
     ) {
         if (current != null && current?.id != channel.id) previous = current
         // Played from search or another group: CH+/CH- then move through all channels.
@@ -257,19 +533,33 @@ object LiveZapSession {
         guide = guideMap
         index = channels.indexOfFirst { it.id == channel.id }
         current = channel
+        this.wrapAtEnds = wrapAtEnds
+        this.showChannelNumbers = showChannelNumbers
+        this.showOsdAfterTune = showOsdAfterTune
+        failoverActive = false
         LiveStreamGuard.protect(channel.streamUrl)
         tried.clear()
         reconnects.reset()
+        publishSnapshot()
     }
 
     /** The channel playing now (or last played), so lists can return focus to it. */
     fun currentId(): String? = current?.id
 
+    /** Read-only channel-list snapshot for the in-player mini-guide. */
+    fun snapshotChannels(): LiveZapSnapshot? = _snapshot.value
+
+    /** Current and next guide entries without exposing the session's guide map. */
+    fun programmesFor(channelId: String, nowMs: Long = System.currentTimeMillis()): Pair<EpgProgramme?, EpgProgramme?> =
+        IptvRepository.nowAndNext(guide[channelId], nowMs)
+
     /** Next/previous channel in the list (wrapping), or null when there is none. */
     fun step(forward: Boolean): IptvChannel? {
         val list = channels
         if (list.size < 2 || index !in list.indices) return null
-        index = (index + if (forward) 1 else -1 + list.size) % list.size
+        val nextIndex = index + if (forward) 1 else -1
+        if (!wrapAtEnds && nextIndex !in list.indices) return null
+        index = Math.floorMod(nextIndex, list.size)
         return list[index]
     }
 
@@ -296,6 +586,9 @@ object LiveZapSession {
     /** Flip back to the channel watched before this one. */
     fun lastChannel(): Boolean = previous?.let(::open) ?: false
 
+    /** Tune a mini-guide selection through the current in-place switcher. */
+    fun tune(channel: IptvChannel): Boolean = open(channel)
+
     /** Called when playback fails: switches to an untried copy of the same channel, if there is one. */
     fun failover(): Boolean {
         val go = opener ?: return false
@@ -305,7 +598,9 @@ object LiveZapSession {
         val backup = backups?.copiesOf(failed)?.firstOrNull { it.id !in tried } ?: return false
         tried += backup.id
         current = backup
+        failoverActive = true
         LiveStreamGuard.protect(backup.streamUrl)
+        publishSnapshot()
         go(backup)
         return true
     }
@@ -343,10 +638,12 @@ object LiveZapSession {
         val go = opener ?: return false
         if (current?.id != channel.id) previous = current
         current = channel
+        failoverActive = false
         LiveStreamGuard.protect(channel.streamUrl)
         channels.indexOfFirst { it.id == channel.id }.takeIf { it >= 0 }?.let { index = it }
         tried.clear()
         reconnects.reset()
+        publishSnapshot()
         go(channel)
         return true
     }
@@ -361,6 +658,8 @@ object LiveZapSession {
         guide = emptyMap()
         backups = null
         index = -1
+        failoverActive = false
+        publishSnapshot()
     }
 
     fun clear() {
@@ -370,11 +669,41 @@ object LiveZapSession {
         index = -1
         current = null
         previous = null
+        wrapAtEnds = true
+        showChannelNumbers = true
+        showOsdAfterTune = true
+        failoverActive = false
         tried.clear()
         reconnects.reset()
         _typedNumber.value = null
+        _snapshot.value = null
+    }
+
+    private fun publishSnapshot() {
+        revision += 1L
+        val safeChannels = java.util.Collections.unmodifiableList(ArrayList(channels))
+        _snapshot.value = LiveZapSnapshot(
+            channels = safeChannels,
+            currentId = current?.id,
+            current = current,
+            revision = revision,
+            showChannelNumbers = showChannelNumbers,
+            showOsdAfterTune = showOsdAfterTune,
+            failoverActive = failoverActive
+        )
     }
 }
+
+@ConsistentCopyVisibility
+data class LiveZapSnapshot internal constructor(
+    val channels: List<IptvChannel>,
+    val currentId: String?,
+    val current: IptvChannel?,
+    val revision: Long,
+    val showChannelNumbers: Boolean,
+    val showOsdAfterTune: Boolean,
+    val failoverActive: Boolean = false
+)
 
 const val LIVE_CONTENT_TYPE = "iptv"
 
@@ -386,6 +715,7 @@ fun liveChannelPlayerRoute(channel: IptvChannel, nowTitle: String?): String =
         headers = channel.headers.ifEmpty { null },
         contentType = LIVE_CONTENT_TYPE,
         contentName = channel.name,
+        videoId = "iptv:${channel.id}",
         logo = channel.logoUrl,
         addonName = "Live TV",
         startFromBeginning = true

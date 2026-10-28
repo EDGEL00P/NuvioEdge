@@ -92,7 +92,13 @@ class M3uParser(private val sourceId: String, private val maxChannels: Int = Int
                 epgId = attrs["tvg-id"]?.takeIf { it.isNotBlank() },
                 epgName = attrs["tvg-name"]?.takeIf { it.isNotBlank() },
                 number = attrs["tvg-chno"]?.trim()?.toIntOrNull(),
-                headers = pendingHeaders.toMap()
+                headers = pendingHeaders.toMap(),
+                catchupDays = attrs["catchup-days"]?.toIntOrNull()?.coerceIn(0, MAX_CATCHUP_DAYS)
+                    ?.takeIf { attrs["catchup"]?.equals("none", ignoreCase = true) != true }
+                    ?.takeIf { !attrs["catchup-source"].isNullOrBlank() } ?: 0,
+                catchupTemplate = attrs["catchup-source"]
+                    ?.takeIf { it.isNotBlank() && attrs["catchup"]?.equals("none", ignoreCase = true) != true }
+                    ?.take(MAX_CATCHUP_TEMPLATE_CHARS)
             )
         }
         pendingName = null
@@ -115,6 +121,8 @@ class M3uParser(private val sourceId: String, private val maxChannels: Int = Int
         }
 
         const val UNCATEGORIZED = "Uncategorized"
+        private const val MAX_CATCHUP_DAYS = 31
+        private const val MAX_CATCHUP_TEMPLATE_CHARS = 2048
         private val ATTR_PATTERN = Regex("""([a-zA-Z0-9_-]+)="([^"]*)"""")
 
         internal fun parseAttributes(line: String): MutableMap<String, String> {
