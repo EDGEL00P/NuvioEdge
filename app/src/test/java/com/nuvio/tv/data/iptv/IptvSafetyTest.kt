@@ -80,4 +80,19 @@ class IptvSafetyTest {
         assertEquals("http://panel.tv/redacted/redacted/12", IptvSafety.redactLogin("http://panel.tv/joe/pw/12"))
         assertEquals("https://cdn.tv/a.m3u8", IptvSafety.redactLogin("https://joe:pw@cdn.tv/a.m3u8?token=abc"))
     }
+
+    @Test
+    fun `redaction removes all supported login forms and refuses malformed URLs`() {
+        for (prefix in listOf("live", "movie", "series", "timeshift")) {
+            val redacted = IptvSafety.redactLogin("https://user:secret@panel.test/$prefix/alice/p%40ss/1.ts?token=private#private")
+            assertEquals("https://panel.test/$prefix/redacted/redacted/1.ts", redacted)
+        }
+        assertEquals("<invalid-url>", IptvSafety.redactLogin("https://alice:secret@/bad?token=private"))
+        assertEquals("<invalid-url>", IptvSafety.redactLogin("not-a-url/private-secret"))
+        val source = IptvSource("id", "Local", IptvSourceType.XTREAM, "https://secret.test", username = "alice", password = "private", epgUrl = "https://guide.test/private")
+        assertFalse(source.toString().contains("private"))
+        assertFalse(source.toString().contains("alice"))
+        assertFalse(IptvChannel("id::1", "id", "Channel", "", "https://private.test", headers = mapOf("Authorization" to "private")).toString().contains("private"))
+        assertEquals("Could not load this source", IptvRepository.userMessage(java.io.IOException("https://alice:private@host/live")))
+    }
 }

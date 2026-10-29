@@ -223,6 +223,70 @@ class IptvRepositorySourceEditTest {
     }
 
     @Test
+    fun `fuzzy review suggestions neither assign programmes nor persist mappings`() = kotlinx.coroutines.test.runTest {
+        val source = existing.copy(epgUrl = server.url("/guide.xml").toString())
+        storedSources = listOf(source)
+        server.enqueue(MockResponse().setBody("""<tv>
+            <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+            <programme start="20261024100000" stop="20261024110000" channel="bbc1.uk"><title>Not assigned</title></programme>
+        </tv>"""))
+        val channel = IptvChannel("${source.id}::1", source.id, "BBC On", "", "https://stream.example/1")
+        val report = repository().loadGuideWithReport(listOf(source), listOf(channel), force = false)
+        val candidate = report.sources.single().guideCandidates.single()
+
+        assertTrue(com.nuvio.tv.ui.screens.live.candidateSimilarity(channel.name, candidate)!! >= 70)
+        assertEquals(1, report.sources.single().unmatched)
+        assertEquals(0, report.sources.single().matched)
+        assertTrue(report.programmesByChannel.isEmpty())
+        assertTrue(storedSources.single().manualEpgMappings.isEmpty())
+        coVerify(exactly = 0) { store.update(any()) }
+    }
+
+    @Test
+    fun `guide and catch-up shifts remain separate across cached guide and source edits`() = kotlinx.coroutines.test.runTest {
+        val now = System.currentTimeMillis() / 1000 * 1000
+        val rawStart = now - 7_200_000L
+        val rawEnd = rawStart + 1_800_000L
+        val source = existing.copy(epgUrl = server.url("/guide.xml").toString(), guideShiftMinutes = 60, catchupShiftMinutes = -30)
+        storedSources = listOf(source)
+        fun stamp(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneOffset.UTC)
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss Z"))
+        server.enqueue(MockResponse().setBody("""<tv>
+            <channel id="archive"><display-name>Archive</display-name></channel>
+            <programme start="${stamp(rawStart)}" stop="${stamp(rawEnd)}" channel="archive"><title>Earlier</title></programme>
+        </tv>"""))
+        val channel = IptvChannel(
+            "${source.id}::1", source.id, "Archive", "", "https://stream.example/1", epgId = "archive",
+            catchupDays = 3, catchupTemplate = "https://archive.example/?start={utc}&end={utcend}&duration={duration}",
+            catchupShiftMinutes = 720
+        )
+        val repo = repository()
+        val displayed = repo.loadGuide(listOf(source), listOf(channel), false).getValue(channel.id).single()
+        assertEquals(rawStart + 3_600_000L, displayed.startMs)
+        assertEquals(rawEnd + 3_600_000L, displayed.endMs)
+        assertEquals(
+            "https://archive.example/?start=${(displayed.startMs - 1_800_000L) / 1000}&end=${(displayed.endMs - 1_800_000L) / 1000}&duration=1800",
+            repo.catchupUrl(channel, displayed, now)
+        )
+        val changedCatchup = source.copy(catchupShiftMinutes = 30)
+        storedSources = listOf(changedCatchup)
+        assertEquals(listOf(displayed), repo.loadGuide(listOf(changedCatchup), listOf(channel), false).getValue(channel.id))
+        assertEquals(
+            "https://archive.example/?start=${(displayed.startMs + 1_800_000L) / 1000}&end=${(displayed.endMs + 1_800_000L) / 1000}&duration=1800",
+            repo.catchupUrl(channel, displayed, now)
+        )
+        val changedGuide = changedCatchup.copy(guideShiftMinutes = 30)
+        storedSources = listOf(changedGuide)
+        val redisplayed = repo.loadGuide(listOf(changedGuide), listOf(channel), false).getValue(channel.id).single()
+        assertEquals(rawStart + 1_800_000L, redisplayed.startMs)
+        assertEquals(
+            "https://archive.example/?start=${(rawStart + 3_600_000L) / 1000}&end=${(rawEnd + 3_600_000L) / 1000}&duration=1800",
+            repo.catchupUrl(channel, redisplayed, now)
+        )
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
     fun `guide shift is clamped to half-hour steps within twelve hours`() {
         assertEquals(0, IptvSource.clampGuideShift(0))
         assertEquals(60, IptvSource.clampGuideShift(55))

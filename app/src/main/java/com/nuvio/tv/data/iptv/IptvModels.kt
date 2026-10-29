@@ -24,7 +24,8 @@ data class IptvSource(
     /** Optional XMLTV guide URL. Blank = use the playlist's url-tvg or the Xtream xmltv.php. */
     val epgUrl: String = "",
     val enabled: Boolean = true,
-    /** User-confirmed channel id -> XMLTV channel id overrides; persisted inside the encrypted source store. */
+    /** Compatibility view populated by [IptvSourcesStore]; excluded from newly serialized sources. */
+    @kotlinx.serialization.Transient
     val manualEpgMappings: Map<String, String> = emptyMap(),
     /** Added to every guide time from this source, for providers whose XMLTV clock is consistently off. */
     val guideShiftMinutes: Int = 0,

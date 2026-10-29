@@ -50,7 +50,7 @@ internal object IptvSafety {
 
     /** [url] without query, user info or Xtream login path segments, for anything stored or logged. */
     fun redactLogin(url: String): String {
-        val parsed = url.toHttpUrlOrNull() ?: return url.substringBefore('?')
+        val parsed = url.toHttpUrlOrNull() ?: return "<invalid-url>"
         val builder = parsed.newBuilder().query(null).fragment(null).username("").password("")
         val segments = parsed.pathSegments
         if (segments.size >= 4 && segments[0].lowercase() in XTREAM_PREFIXES) {

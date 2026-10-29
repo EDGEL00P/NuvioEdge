@@ -32,11 +32,12 @@ object LiveStreamGuard {
         val guarded = always || isProtected(request.url.host)
         if (guarded && response.isRedirect) {
             val location = response.header("Location")
-            if (IptvSafety.isInsecureRedirect(request.isHttps, location)) {
+            val target = location?.let { request.url.resolve(it) }
+            if (request.isHttps && target?.scheme == "http") {
                 response.close()
                 throw IptvSafety.InsecureRedirectException()
             }
-            location?.let { request.url.resolve(it) }?.let { protect(it.toString()) }
+            target?.let { protect(it.toString()) }
         }
         response
     }

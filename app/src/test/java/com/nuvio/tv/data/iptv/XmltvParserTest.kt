@@ -95,6 +95,70 @@ class XmltvParserTest {
     }
 
     @Test
+    fun `catalog retains every alias within the explicit per-channel bound`() {
+        val aliases = (1..18).joinToString("") { "<display-name>Alias $it</display-name>" }
+        val result = XmltvParser(now).parse("<tv><channel id=\"many\">$aliases</channel></tv>".byteInputStream())
+
+        assertEquals((1..16).map { "Alias $it" }.toSet(), result.displayNamesByChannelId.getValue("many"))
+        assertTrue(result.channelCatalogTruncated)
+        assertTrue(result.channelIdsByName.size <= 16)
+        assertNull(result.resolveGuideId(null, listOf("Alias 1")))
+        assertEquals("many", result.resolveGuideId("many", emptyList()))
+      }
+
+      @Test
+      fun `all retained aliases including late aliases participate in matching`() {
+        val aliases = (1..16).joinToString("") { "<display-name>Alias $it</display-name>" }
+        val result = XmltvParser(now).parse("<tv><channel id=\"many\">$aliases</channel></tv>".byteInputStream())
+        (1..16).forEach { assertEquals("many", result.resolveGuideId(null, listOf("Alias $it"))) }
+        assertFalse(result.channelCatalogTruncated)
+      }
+
+      @Test
+      fun `global alias and channel bounds disable unsafe name guesses`() {
+        val channels = (1..5_001).joinToString("") { channel ->
+          "<channel id=\"$channel\">" + (1..5).joinToString("") { "<display-name>Channel $channel Alias $it</display-name>" } + "</channel>"
+        }
+        val result = XmltvParser(now).parse("<tv>$channels</tv>".byteInputStream())
+        assertTrue(result.channelCatalogTruncated)
+        assertTrue(result.displayNamesByChannelId.size <= 5_000)
+        assertTrue(result.displayNamesByChannelId.values.sumOf { it.size } <= 20_000)
+        assertTrue(result.channelIdsByName.size <= 20_000)
+        assertTrue(result.declaredChannelIds.size <= 5_000)
+        assertNull(result.resolveGuideId(null, listOf("Channel 1 Alias 1")))
+      }
+
+      @Test
+      fun `predeclaration programme buffer is bounded and reports truncation`() {
+        val programmes = (1..10_001).joinToString("") {
+          """<programme start="20261024100000" stop="20261024110000" channel="late"><title>$it</title></programme>"""
+        }
+        val result = XmltvParser(now).parse(
+          "<tv>$programmes<channel id=\"late\"><display-name>Late</display-name></channel></tv>".byteInputStream(),
+          wantedNames = setOf("late")
+        )
+        assertEquals(10_000, result.programmes.getValue("late").size)
+        assertTrue(result.programmeCatalogTruncated)
+      }
+
+      @Test
+      fun `in-window programmes before channel declarations resolve after aliases are read`() {
+        val guide = """<tv>
+          <programme start="20261024100000 +0000" stop="20261024110000 +0000" channel="late.channel"><title>Late declaration</title></programme>
+          <channel id="late.channel"><display-name>Late Alias</display-name></channel>
+        </tv>"""
+
+        val result = XmltvParser(now).parse(
+          guide.byteInputStream(),
+          wantedNames = setOf(XmltvParser.normalizeChannelName("Late Alias"))
+        )
+
+        assertEquals(listOf("Late declaration"), result.programmes.getValue("late.channel").map { it.title })
+        assertEquals("late.channel", result.resolveGuideId(null, listOf("Late Alias")))
+        assertFalse(result.programmeCatalogTruncated)
+      }
+
+    @Test
     fun `exact guide id wins and unmatched id falls back to one name candidate`() {
         val guide = """<tv>
           <channel id="correct"><display-name>BBC One</display-name></channel>
@@ -158,7 +222,7 @@ class XmltvParserTest {
         val result = XmltvParser(now).parse(guide.byteInputStream(), wantedIds = setOf("NEWS.UK"))
 
         assertNull(result.canonicalDeclaredId("NEWS.UK"))
-        assertEquals(EpgMatchKind.UNMATCHED, result.resolveGuide("NEWS.UK", emptyList()).kind)
+        assertEquals(EpgMatchKind.AMBIGUOUS, result.resolveGuide("NEWS.UK", listOf("News UK Plus")).kind)
         // An exact spelling is still honoured even though the folded forms collide.
         assertEquals("news.uk", result.resolveGuideId("news.uk", emptyList()))
     }

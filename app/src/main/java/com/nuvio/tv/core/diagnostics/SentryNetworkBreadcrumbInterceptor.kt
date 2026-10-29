@@ -85,6 +85,8 @@ class SentryNetworkBreadcrumbInterceptor : Interceptor {
         val builder = url.newBuilder()
             .query(null)
             .fragment(null)
+            .username("")
+            .password("")
         // Xtream-style stream URLs carry the login in the path: /live/<user>/<pass>/<id>.ts
         val segments = url.pathSegments
         if (segments.size >= 4 && segments[0].lowercase() in XTREAM_PATH_PREFIXES) {

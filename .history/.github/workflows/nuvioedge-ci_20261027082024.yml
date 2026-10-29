@@ -1,0 +1,120 @@
+name: NuvioEdge CI
+
+on:
+  push:
+    branches: [main, feature/iptv]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Also build a signed release APK (needs the NUVIOEDGE_* secrets)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nuvioedge-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Tests and debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare local properties
+        run: |
+          touch local.properties
+          touch local.dev.properties
+
+      - name: NuvioEdge tests (must pass)
+        run: >
+          ./gradlew :app:testFullDebugUnitTest
+          --tests 'com.nuvio.tv.data.iptv.*'
+          --tests 'com.nuvio.tv.data.sports.*'
+          --tests 'com.nuvio.tv.ui.screens.live.*'
+          --tests 'com.nuvio.tv.core.diagnostics.*'
+          --stacktrace
+
+      - name: Debug APK
+        run: ./gradlew :app:assembleFullDebug --stacktrace
+
+      # Two upstream Trakt tests already fail on unmodified NuvioTV, so the full suite reports
+      # without blocking. Check this step's log for anything new.
+      - name: Full test suite (report only)
+        continue-on-error: true
+        run: ./gradlew :app:testFullDebugUnitTest --continue
+
+      - name: Upload debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvioedge-debug
+          path: app/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Signed release APK
+    if: github.event_name == 'workflow_dispatch' && inputs.release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare local properties
+        run: |
+          touch local.properties
+          touch local.dev.properties
+
+      - name: Signing key from repository secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NUVIOEDGE_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.NUVIOEDGE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.NUVIOEDGE_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.NUVIOEDGE_STORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ] || [ -z "$STORE_PASSWORD" ]; then
+            echo "::error::Add NUVIOEDGE_KEYSTORE_BASE64, NUVIOEDGE_KEY_ALIAS, NUVIOEDGE_KEY_PASSWORD and NUVIOEDGE_STORE_PASSWORD under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/release.jks"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$STORE_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Release APK
+        run: ./gradlew :app:assembleFullRelease --stacktrace
+
+      - name: Upload release APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvioedge-release
+          path: app/build/outputs/apk/full/release/*.apk
+          if-no-files-found: error
+          retention-days: 30

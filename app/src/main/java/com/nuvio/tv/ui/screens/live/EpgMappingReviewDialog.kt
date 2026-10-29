@@ -256,11 +256,11 @@ internal fun EpgMappingReviewDialog(
 
 private data class RankedEpgCandidate(val candidate: EpgGuideCandidate, val similarity: Int?)
 
-private fun candidateSimilarity(channelName: String, candidate: EpgGuideCandidate): Int? {
+internal fun candidateSimilarity(channelName: String, candidate: EpgGuideCandidate): Int? {
     val queryNames = XmltvParser.candidateNames(null, channelName)
         .map { XmltvParser.normalizeChannelName(it) }
         .filter { it.length >= MIN_SUGGESTION_LENGTH }
-    val guideNames = candidate.displayNames.take(2)
+    val guideNames = candidate.displayNames.take(16)
         .map { XmltvParser.normalizeChannelName(it) }
         .filter { it.length >= MIN_SUGGESTION_LENGTH }
     if (queryNames.isEmpty() || guideNames.isEmpty()) return null

@@ -85,4 +85,12 @@ class GuideAndScoresTest {
         assertEquals(listOf("1"), filterChannels(all, "fox", "Sport").map { it.id })
         assertEquals(listOf("2"), filterChannels(all, "", "UK").map { it.id })
     }
+
+    @Test
+    fun `fuzzy review ranking includes later aliases but never changes automatic resolution`() {
+        val candidate = com.nuvio.tv.data.iptv.EpgGuideCandidate("bbc", listOf("Unrelated", "Other", "BBC One"))
+        assertTrue(candidateSimilarity("BBC On", candidate)!! >= 70)
+        val matcher = com.nuvio.tv.data.iptv.EpgMatcher(setOf("bbc"), mapOf("bbcone" to setOf("bbc")))
+        assertEquals(com.nuvio.tv.data.iptv.EpgMatchKind.UNMATCHED, matcher.resolve(null, listOf("BBC On")).kind)
+    }
 }

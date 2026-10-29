@@ -1,6 +1,8 @@
 package com.nuvio.tv.data.iptv
 
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -30,6 +32,16 @@ class EpgMatchingCorpusTest {
       <channel id="nhk.jp"><display-name>NHK総合</display-name></channel>
       <channel id="kera.us"><display-name>13</display-name><display-name>13 KERA</display-name></channel>
       <channel id="ktvt.us"><display-name>2</display-name></channel>
+    <channel id="france2.fr"><display-name>France 2</display-name><display-name>France Deux</display-name><display-name>F2 National</display-name></channel>
+    <channel id="cafe.fr"><display-name>Café Télé</display-name></channel>
+    <channel id="bbc1.plus"><display-name>BBC One +1</display-name></channel>
+    <channel id="bbc1.en"><display-name>BBC One English</display-name></channel>
+    <channel id="bbc1.cy"><display-name>BBC One Welsh</display-name></channel>
+    <channel id="news.hi"><display-name>समाचार</display-name></channel>
+    <channel id="news.ar"><display-name>أخبار</display-name></channel>
+    <channel id="news.ru"><display-name>Новости</display-name></channel>
+    <channel id="News.Case"><display-name>Case A</display-name></channel>
+    <channel id="news.case"><display-name>Case B</display-name></channel>
     </tv>"""
 
     /** [expected] null = must stay unmatched; [mustMatch] false = a miss is acceptable, a wrong id is not. */
@@ -66,7 +78,31 @@ class EpgMatchingCorpusTest {
         Case("base channel", "ESPN", expected = "espn.us"),
         Case("unrelated numeric id falls back to name", "Das Erste", epgId = "987654", expected = "Das.Erste.de"),
         Case("stale tvg-name falls back to title", "Das Erste", epgName = "ARD Old Name", expected = "Das.Erste.de"),
-        Case("bare number tag remainder", "CH: 13", expected = null)
+        Case("bare number tag remainder", "CH: 13", expected = null),
+        Case("third declared alias", "F2 National", expected = "france2.fr"),
+        Case("French word alias", "France Deux HD", expected = "france2.fr"),
+        Case("accent folding", "Cafe Tele", expected = "cafe.fr"),
+        Case("decomposed accents", "Cafe\u0301 Te\u0301le\u0301", expected = "cafe.fr"),
+        Case("stacked quality tags", "BBC One HD [1080p] HEVC", expected = "bbc1.uk"),
+        Case("codec quality", "BBC One H.265", expected = "bbc1.uk"),
+        Case("timeshift is distinct", "BBC One +1 HD", expected = "bbc1.plus"),
+        Case("unknown timeshift", "BBC One +2", expected = null),
+        Case("English feed", "BBC One English UHD", expected = "bbc1.en"),
+        Case("Welsh feed", "BBC One Welsh", expected = "bbc1.cy"),
+        Case("unavailable language", "BBC One Arabic", expected = null),
+        Case("Hindi exact", "समाचार", expected = "news.hi"),
+        Case("Arabic exact", "أخبار", expected = "news.ar"),
+        Case("Cyrillic exact", "Новости", expected = "news.ru"),
+        Case("Latin lookalike is not Cyrillic", "Novosti", expected = null),
+        Case("misspelling stays suggestion only", "BBC On", expected = null),
+        Case("edit distance stays suggestion only", "Discoveri Channel", expected = null),
+        Case("numeric sibling not guessed", "ESPN 3", expected = null),
+        Case("regional feed not guessed", "BBC One Northern Ireland", expected = null),
+        Case("punctuation is not id normalization", "x", epgId = "bbc1-uk", expected = null),
+        Case("ambiguous folded id blocks name fallback", "Case B", epgId = "NEWS.CASE", expected = null),
+        Case("exact spelling beats folded collision", "Case A", epgId = "news.case", expected = "news.case"),
+        Case("empty metadata", "", expected = null),
+        Case("punctuation only", "[] --", expected = null)
     )
 
     @Test
@@ -91,6 +127,49 @@ class EpgMatchingCorpusTest {
         assertTrue("Wrong automatic matches:\n" + wrong.joinToString("\n"), wrong.isEmpty())
         assertTrue("Regressed matches:\n" + missed.joinToString("\n"), missed.isEmpty())
         val matchable = cases.count { it.expected != null }
+        val correct = matched - wrong.size
+        val precision = if (matched == 0) 0.0 else correct.toDouble() / matched
+        val coverage = correct.toDouble() / matchable
+        println("EPG corpus: cases=${cases.size}, assigned=$matched, correct=$correct, wrong=${wrong.size}, matchable=$matchable, precision=$precision, coverage=$coverage")
+        assertEquals("Automatic precision", 1.0, precision, 0.0)
+        assertTrue("Automatic coverage $correct/$matchable", coverage >= 0.95)
         assertTrue("Coverage $matched/$matchable", matched >= cases.count { it.mustMatch })
+    }
+
+    @Test
+    fun `resolution contract is stable under declaration and candidate insertion order`() {
+        val ids = listOf("exact", "first", "second", "third")
+        for (orderedIds in listOf(ids, ids.reversed())) {
+            val candidates = linkedSetOf("second", "first")
+            val matcher = EpgMatcher(orderedIds.toSet(), mapOf(
+                "shared" to candidates,
+                "strong" to setOf("third"),
+                "weak" to setOf("first"),
+                "orphan" to setOf("not-declared")
+            ))
+            assertEquals("exact", matcher.resolve(" exact ", listOf("Shared")).guideId)
+            assertEquals("third", matcher.resolve(null, listOf("Strong", "Weak")).guideId)
+            val ambiguous = matcher.resolve(null, listOf("Shared", "Weak"))
+            assertEquals(EpgMatchKind.AMBIGUOUS, ambiguous.kind)
+            assertEquals(listOf("first", "second"), ambiguous.candidateIds.toList())
+            assertNull(ambiguous.guideId)
+            assertNull(matcher.resolve(null, listOf("Orphan")).guideId)
+            assertNull(matcher.resolve("stale", listOf("Strong"), manualOverride = true).guideId)
+            candidates.clear()
+            assertEquals(EpgMatchKind.AMBIGUOUS, matcher.resolve(null, listOf("Shared")).kind)
+        }
+    }
+
+    @Test
+    fun `corpus assignments are identical with reversed guide declarations`() {
+        val declarations = Regex("<channel[^>]*>.*?</channel>").findAll(guide).map { it.value }.toList()
+        val wantedIds = cases.mapNotNullTo(HashSet()) { it.epgId }
+        val wantedNames = cases.flatMapTo(HashSet()) { XmltvParser.candidateNames(it.epgName, it.name) }
+        val forward = XmltvParser(now).parse(guide.byteInputStream(), wantedIds, wantedNames)
+        val reverse = XmltvParser(now).parse(("<tv>" + declarations.reversed().joinToString("") + "</tv>").byteInputStream(), wantedIds, wantedNames)
+        for (case in cases) {
+            val names = listOfNotNull(case.epgName, case.name)
+            assertEquals(case.label, forward.resolveGuide(case.epgId, names), reverse.resolveGuide(case.epgId, names))
+        }
     }
 }
